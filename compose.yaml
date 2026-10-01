@@ -1,0 +1,18 @@
+services:
+  pi-remote:
+    image: ghcr.io/pineapplehunter/pi-remote-server:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      PI_REMOTE_TOKEN_FILE: /run/pi-remote/agents.json
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:3000}
+    volumes:
+      - type: bind
+        source: ./agents.json
+        target: /run/pi-remote/agents.json
+        read_only: true
+        bind:
+          create_host_path: false

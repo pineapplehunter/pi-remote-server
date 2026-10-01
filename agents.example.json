@@ -1,0 +1,10 @@
+[
+  {
+    "host_id": "laptop",
+    "token": "example-only-replace-with-a-unique-random-secret-for-laptop"
+  },
+  {
+    "host_id": "gpu01",
+    "token": "example-only-replace-with-a-different-random-secret-for-gpu01"
+  }
+]

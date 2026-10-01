@@ -1,0 +1,87 @@
+name: Build OCI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup nix
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b # v31.10.4
+
+      - name: Test and type-check
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            bun install --frozen-lockfile
+            bun test
+            bun run typecheck
+          '
+
+  build-image:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup nix
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b # v31.10.4
+
+      - name: Build image
+        run: nix build
+
+      - name: Load image to Docker
+        run: ./result | docker load
+
+      - name: Smoke-test container
+        run: |
+          credentials_dir=$(mktemp -d)
+          trap 'docker rm -f pi-remote-smoke >/dev/null 2>&1 || true; rm -rf "$credentials_dir"' EXIT
+          printf '%s\n' '[{"host_id":"ci","token":"ci-smoke-token"}]' > "$credentials_dir/agents.json"
+          docker run --detach --name pi-remote-smoke \
+            --publish 127.0.0.1::3000 \
+            --env PI_REMOTE_TOKEN_FILE=/run/pi-remote/agents.json \
+            --mount "type=bind,src=$credentials_dir/agents.json,dst=/run/pi-remote/agents.json,readonly" \
+            pi-remote-server:latest
+          url="http://$(docker port pi-remote-smoke 3000/tcp)"
+          for _ in {1..30}; do
+            if curl --fail --silent "$url/" > /dev/null; then break; fi
+            sleep 1
+          done
+          docker logs pi-remote-smoke
+          curl --fail --silent --show-error "$url/" | grep -q 'Pi remote'
+          curl --fail --silent --show-error "$url/favicon.svg" | grep -q '<svg'
+          curl --fail --silent --show-error "$url/public/app.js" > /dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$url/agent/ws")" = 401
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login --username "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Upload image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+          docker image tag pi-remote-server:latest "$image"
+          docker push "$image"

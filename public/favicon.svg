@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Pi remote</title>
+  <rect width="32" height="32" rx="7" fill="#202f43"/>
+  <path d="M7 10h19M12 10 9 25m13-15-2 10q-1 5 5 5" fill="none" stroke="#edf2fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
