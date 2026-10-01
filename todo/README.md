@@ -10,11 +10,12 @@ Completed requests:
 - [04: Usage-limit announcements](04-usage-limit.md)
 - [05: CDN vendor libraries](05-cdn-vendor-libraries.md)
 - [06: Tool-call visibility](06-tool-visibility.md)
+- [07: Improved composer and Ctrl+Enter](07-chat-composer.md)
 
 Current requests:
 
-- [07: Improved composer and Ctrl+Enter](07-chat-composer.md)
+- [08: Steer or follow-up delivery](08-steer-followup.md)
 
 For independent test suites, use subagents concurrently with separate snapshots/workspaces. Do not share mutable workspaces or copy local credentials. Record their reports alongside combined/local browser verification.
 
-Add future requests as new task files; preserve completed tasks as implementation/verification records.
+Commit each task's scoped changes after completing it. Add future requests as new task files; preserve completed tasks as implementation/verification records.

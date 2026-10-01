@@ -101,6 +101,8 @@ Chat, assistant drafts, tool activity and Pi notices share **one chronological s
 
 Use **Tool calls** in the chat header to show/hide activity rows. The browser remembers this display preference across sessions/reloads using localStorage (only the boolean preference, never conversation data). Hiding tools does not stop receiving/updating/buffering them or hide chat/usage-limit notices. If storage is blocked, the toggle still works for the current page.
 
+The composer uses a rounded, auto-growing multiline field and a separate Send action. **Ctrl+Enter sends; Enter inserts a newline.** Repeated keys and active IME composition do not send. Send stays disabled for blank/offline input, but the draft remains editable; busy Pi still accepts follow-ups. Successful sends shrink/clear the field; a matched routing error restores its text and height. Height is capped so long drafts scroll inside the input. The design adapts [LibreChat and assistant-ui composer patterns](docs/composer-design.md), without adding React, attachments or unsupported stop controls.
+
 The gateway retains a **bounded, in-memory materialized view per live registration**:
 
 - At most **400 completed chat/activity/notice entries**, with at most **512 KiB serialized entry data**. Oldest entries are evicted first.

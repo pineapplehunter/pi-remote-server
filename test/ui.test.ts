@@ -44,6 +44,9 @@ test("vendor CDN URLs are pinned and SRI matches installed assets", async () => 
 async function browser(history = new SessionHistory(), toolPreference?: string) {
   const window = new JSDOM(page([session], session, history.snapshot()), { url: "http://localhost:3000", runScripts: "outside-only" }).window;
   Object.defineProperty(window, "TextEncoder", { value: TextEncoder });
+  // jsdom/Bun has no usable Window EventTarget receiver; viewport events are
+  // exercised in Chromium. Delegate registration to the fixture's document.
+  Object.defineProperty(window, "addEventListener", { value: window.document.addEventListener.bind(window.document) });
   if (toolPreference !== undefined) window.localStorage.setItem("pi-remote.show-tools", toolPreference);
   const style = window.document.createElement("style");
   style.textContent = await Bun.file(new URL("../public/style.css", import.meta.url)).text();
@@ -176,5 +179,47 @@ test("tool visibility applies to buffered/live calls and survives view swaps and
     expect(toggle().getAttribute("aria-pressed")).toBe("false");
     expect(window.getComputedStyle(document.querySelector(".activity")!).display).toBe("none");
     expect(history.snapshot().items.filter(item => item.kind === "activity")).toHaveLength(2);
+  } finally { window.close(); }
+});
+
+test("composer grows/shrinks and Ctrl+Enter sends literal text without repeat/IME/Enter sends", async () => {
+  const { window, document, ws } = await browser();
+  try {
+    const text = document.querySelector<HTMLTextAreaElement>("#text")!;
+    const send = document.querySelector<HTMLButtonElement>(".send-button")!;
+    Object.defineProperty(text, "scrollHeight", { get: () => text.value.split("\n").length * 24 + 16 });
+    const input = (value: string) => { text.value = value; text.dispatchEvent(new window.Event("input", { bubbles: true })); };
+    const key = (options: KeyboardEventInit = {}) => {
+      const event = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...options });
+      text.dispatchEvent(event); return event;
+    };
+    const messages = () => ws.sent.filter(message => message.type === "message.send");
+    expect(send.disabled).toBe(true);
+    input("   "); expect(send.disabled).toBe(true);
+    input("  hello\n" + "line\n".repeat(20));
+    const original = text.value;
+    expect(send.disabled).toBe(false);
+    expect(text.style.height).toBe("224px");
+    expect(key().defaultPrevented).toBe(false);
+    key({ ctrlKey: true, repeat: true });
+    key({ ctrlKey: true, isComposing: true });
+    text.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true }));
+    key({ ctrlKey: true });
+    text.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true }));
+    expect(messages()).toHaveLength(0);
+    expect(key({ ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]!.text).toBe(original);
+    expect(text.value).toBe(""); expect(text.style.height).toBe("56px");
+    expect(send.disabled).toBe(true);
+    expect(document.activeElement).toBe(text);
+    ws.receive({ type: "gateway.error", message: "Routing failed", request_id: messages()[0]!.request_id });
+    expect(text.value).toBe(original); expect(text.style.height).toBe("224px");
+    expect(send.disabled).toBe(false);
+    ws.receive({ type: "session.removed" });
+    key({ ctrlKey: true });
+    expect(messages()).toHaveLength(1);
+    expect(text.value).toBe(original);
+    expect(document.getElementById("chat-error")!.textContent).toContain("Not connected");
   } finally { window.close(); }
 });

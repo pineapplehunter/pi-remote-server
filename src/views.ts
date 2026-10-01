@@ -39,7 +39,12 @@ export function selectedSession(session: Session, history: HistorySnapshot = new
       <div id="messages" role="log" aria-label="Conversation and activity">${items.map(item => item.html).join("")}</div>
     </div>
     <p id="chat-error" class="error" role="alert"></p>
-    <form id="compose"><label class="sr-only" for="text">Message Pi</label><textarea id="text" name="text" rows="2" placeholder="Message Pi…" required></textarea><button type="submit" disabled>Send</button></form>
+    <form id="compose"><div class="composer-surface">
+      <label class="sr-only" for="text">Message Pi</label>
+      <textarea id="text" name="text" rows="2" placeholder="Ask Pi to investigate, explain, or make a change…" aria-describedby="compose-hint" required></textarea>
+      <div class="composer-toolbar"><p id="compose-hint" class="composer-hint"><span><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</span> <span>Enter for a new line</span></p>
+        <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Control+Enter" disabled>Send<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+      </div></div></form>
     <p class="hint delivery">Input is literal text. Busy Pi queues follow-ups. No delivery guarantee; do not automatically retry.</p>
   </section>`;
 }

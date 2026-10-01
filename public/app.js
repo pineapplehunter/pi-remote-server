@@ -16,6 +16,7 @@
   const MAX_ITEMS = 400;
   const TOOL_PREFERENCE = "pi-remote.show-tools";
   let showTools = true;
+  let composing = false;
   try { showTools = localStorage.getItem(TOOL_PREFERENCE) !== "false"; } catch { /* Storage can be disabled. */ }
 
   function applyToolVisibility() {
@@ -26,10 +27,18 @@
       button.title = showTools ? "Hide tool calls" : "Show tool calls";
     }
   }
+  function resizeComposer() {
+    const text = document.getElementById("text");
+    if (!text) return;
+    text.style.height = "auto";
+    const limit = Math.min(224, Math.max(56, window.innerHeight * .3));
+    text.style.height = `${Math.min(Math.max(text.scrollHeight, 56), limit)}px`;
+    syncSend();
+  }
   function refreshSessions() { window.htmx.trigger(document.getElementById("sessions"), "sessions-changed"); }
   function syncSend() {
     const button = document.querySelector("#compose button");
-    if (button) button.disabled = !available || socket?.readyState !== WebSocket.OPEN;
+    if (button) button.disabled = !available || socket?.readyState !== WebSocket.OPEN || !document.getElementById("text")?.value.trim();
   }
   function showError(text) {
     const error = document.getElementById("chat-error");
@@ -77,8 +86,10 @@
     element?.querySelectorAll(".activity").forEach(item => activities.set(item.dataset.callId, item));
     element?.querySelectorAll(".message:not(.streaming) .message-body").forEach(body => markdown(body, body.textContent));
     available = !!selected;
+    composing = false;
     app.classList.toggle("chat-open", !!selected);
     applyToolVisibility();
+    resizeComposer();
     const feed = document.querySelector(".feed");
     if (feed) feed.scrollTop = feed.scrollHeight;
     syncSend();
@@ -201,7 +212,7 @@
       else connection.textContent = event.message;
       if (event.request_id === lastSubmission?.requestId && selected?.registrationId === lastSubmission.registrationId) {
         const text = document.getElementById("text");
-        if (!text.value) text.value = lastSubmission.text;
+        if (!text.value) { text.value = lastSubmission.text; resizeComposer(); }
       }
       return;
     }
@@ -262,6 +273,16 @@
     try { localStorage.setItem(TOOL_PREFERENCE, String(showTools)); } catch { /* Retain in-memory preference. */ }
     if (follow) feed.scrollTop = feed.scrollHeight;
   });
+  document.addEventListener("input", event => { if (event.target.id === "text") resizeComposer(); });
+  window.addEventListener("resize", resizeComposer);
+  document.addEventListener("compositionstart", event => { if (event.target.id === "text") composing = true; });
+  document.addEventListener("compositionend", event => { if (event.target.id === "text") composing = false; });
+  document.addEventListener("keydown", event => {
+    if (event.target.id !== "text" || event.defaultPrevented || event.key !== "Enter" || !event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+    if (composing || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (!event.repeat) event.target.form.requestSubmit();
+  });
   document.addEventListener("submit", event => {
     if (event.target.id !== "compose") return;
     event.preventDefault();
@@ -275,6 +296,8 @@
         session_id: selected.sessionId, text: text.value, request_id: requestId }));
       lastSubmission = { requestId, registrationId: selected.registrationId, text: text.value };
       text.value = "";
+      resizeComposer();
+      text.focus({ preventScroll: true });
       showError("Forwarding; wait for Pi's user echo. Delivery is not guaranteed.");
     } catch { showError("Send failed. Your message was not sent."); }
   });
