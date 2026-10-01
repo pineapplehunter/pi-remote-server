@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { configPath, loadConfig, type RemoteConfig } from "./config.ts";
 import { RemoteConnection, type ConnectionState } from "./connection.ts";
 import { RemoteInput } from "./input.ts";
+import { usageLimit } from "./usage-limit.ts";
 import { parseServerMessage, VERSION, type ProtocolError, type OutgoingMessage } from "./protocol.ts";
 import { completed, textDelta, TextRedactor, toolStarted, toolCompleted } from "./translation.ts";
 import { registerRemoteCommands, showConnectionState } from "./ui.ts";
@@ -12,6 +13,7 @@ interface ActiveSession {
   cwd: string;
   name: string | null;
   busy: boolean;
+  usageLimitAnnounced: boolean;
   state: ConnectionState;
   lifetime: AbortController;
   config?: RemoteConfig;
@@ -85,7 +87,7 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     active?.connection?.stop();
     const session: ActiveSession = {
       ctx, id: ctx.sessionManager.getSessionId(), cwd: ctx.sessionManager.getCwd(),
-      name: ctx.sessionManager.getSessionName() ?? null, busy: !ctx.isIdle(),
+      name: ctx.sessionManager.getSessionName() ?? null, busy: !ctx.isIdle(), usageLimitAnnounced: false,
       state: "disabled", lifetime: new AbortController(),
     };
     active = session;
@@ -117,6 +119,8 @@ export default function remoteExtension(pi: ExtensionAPI): void {
   pi.on("agent_settled", () => {
     if (!active) return;
     active.busy = false;
+    // Retries can emit agent_start again; reset only after logical settlement.
+    active.usageLimitAnnounced = false;
     send({ version: VERSION, type: "session.status", session_id: active.id, status: "idle" });
     active.input?.agentSettled();
   });
@@ -141,6 +145,11 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     }
     const message = completed(event, active.id, active.config.token);
     if (message) send(message);
+    const limit = usageLimit(event, active.id, active.config.token);
+    if (limit && !active.usageLimitAnnounced) {
+      active.usageLimitAnnounced = true;
+      send(limit);
+    }
   });
   pi.on("tool_execution_start", (event) => {
     if (active?.config) send(toolStarted(event, active.id, active.config.token));

@@ -46,7 +46,7 @@
             dontFixup = true;
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-Uk3iQXzxYPNpdkLVm3b6iuB29+PqXtquBZ+5zFUguRE=";
+            outputHash = "sha256-zXytWdP/zyIyjVLZUt9OH9W9xyI4/BieS9KxHaEbKmw=";
           };
           extensionManifest = builtins.fromJSON (builtins.readFile ./pi-extension/package.json);
           extensionLock = builtins.fromJSON (builtins.readFile ./pi-extension/package-lock.json);

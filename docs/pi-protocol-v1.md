@@ -34,6 +34,7 @@ The examples below show the complete shapes. `s1` is only an example ID.
 {"version":1,"type":"activity.started","session_id":"s1","activity":{"kind":"tool","tool_call_id":"call1","tool":"bash","args":{"command":"npm test"}}}
 {"version":1,"type":"activity.completed","session_id":"s1","activity":{"kind":"tool","tool_call_id":"call1","tool":"bash","is_error":false}}
 {"version":1,"type":"error","session_id":"s1","code":"wrong_session","message":"Message targets a different active session."}
+{"version":1,"type":"error","session_id":"s1","code":"usage_limit_reached","message":"Pi's usage allowance/quota has been reached. You have hit your ChatGPT usage limit."}
 ```
 
 ### Lifecycle semantics
@@ -61,6 +62,12 @@ The examples below show the complete shapes. `s1` is only an example ID.
 - Tool arguments larger than 16 KiB, unserializable arguments, or arguments containing the configured bearer token are replaced with `args: {}` and `args_omitted: true` inside `activity`.
 - Messages/stream text containing the configured bearer token are redacted; secrets other than this token are not automatically detected. This is a trusted remote conversation feed.
 
+### Usage-limit errors
+
+Failed assistant `message_end` events whose provider error text explicitly reports exhausted usage/quota emit `error` with `code: "usage_limit_reached"`. Examples include ChatGPT usage-limit wording, `usage_limit_reached` and `insufficient_quota`. A bare 429 or throughput rate limit does not imply exhausted allowance. Detection is text-based, not account telemetry; unfamiliar provider wording may not be recognized. The configured bearer token is redacted and the detail is bounded to 500 characters. One notice per agent run, including automatic retries. No new server → agent frame is introduced.
+
+Servers must accept the additional v1 error code; upgrade extension and gateway together. It is a provider notification, not a validation response or acceptance acknowledgment.
+
 ## Server → agent
 
 Only this message type is accepted:
@@ -73,7 +80,7 @@ Validate exact numeric `version: 1`, supported `type`, non-empty string `session
 
 Idle input is injected through Pi's normal user-message API. Busy input is queued as `followUp`, never used to steer/interrupt. During automatic retry/compaction gaps, a bounded session-local input queue (32 messages / 1 MiB) defers delivery until Pi streams again or settles; queue overflow returns `injection_failed`. Configuration changes/session replacement discard those transient pending inputs. Slash-command/template expansion is disabled: input is literal conversation text. The eventual `message.completed` for the user input is its normal conversation echo, not an acceptance acknowledgment.
 
-Errors: `invalid_json`, `invalid_message`, `unsupported_version`, `unsupported_type`, `text_too_large`, `wrong_session`, `injection_failed` (synchronous API failure only). Error wording is human-readable and not stable; use `code`. Pi handles asynchronous agent errors itself. Binary frames return `invalid_message`. Frame size violations may close instead of returning an error.
+Errors: `invalid_json`, `invalid_message`, `unsupported_version`, `unsupported_type`, `text_too_large`, `wrong_session`, `injection_failed` (synchronous API failure only). Error wording is human-readable and not stable; use `code`. Pi handles asynchronous agent errors itself; explicit usage/quota exhaustion additionally emits the notification described above. Binary frames return `invalid_message`. Frame size violations may close instead of returning an error.
 
 Malformed traffic must not stop Pi. No error payload echoes incoming text.
 

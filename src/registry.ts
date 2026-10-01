@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import type { AgentMessage } from "./protocol.ts";
+import { SessionHistory, type HistorySnapshot } from "./history.ts";
 
 export type SocketData = { kind: "agent"; hostId: string } | { kind: "browser" };
 export type Socket = ServerWebSocket<SocketData>;
@@ -14,12 +15,13 @@ export interface Session {
   connected_at: number;
   last_seen: number;
 }
-export interface LiveSession extends Session { socket: Socket }
+export interface LiveSession extends Session { socket: Socket; history: SessionHistory }
 export type BrowserEvent =
   | { version: 1; type: "sessions.snapshot"; sessions: Session[] }
   | { version: 1; type: "session.added" | "session.updated"; session: Session; reset?: true }
   | { version: 1; type: "session.removed"; registration_id: string; session_id: string }
-  | (AgentMessage & { registration_id: string })
+  | (AgentMessage & { registration_id: string; sequence?: number })
+  | { version: 1; type: "session.history"; registration_id: string; session_id: string; history: HistorySnapshot }
   | { version: 1; type: "gateway.error"; code: string; message: string; request_id?: string; registration_id?: string };
 
 export function log(event: string, fields: Record<string, string | number> = {}): void {
@@ -54,7 +56,7 @@ export class Registry {
   private readonly byConnection = new Map<Socket, string>();
 
   snapshot(session: LiveSession): Session {
-    const { socket: _socket, ...metadata } = session;
+    const { socket: _socket, history: _history, ...metadata } = session;
     return metadata;
   }
   list(): Session[] { return [...this.sessions.values()].map(session => this.snapshot(session)); }
@@ -78,15 +80,16 @@ export class Registry {
     if (!session) {
       session = { registration_id: crypto.randomUUID(), session_id: message.session_id, host_id: hostId,
         cwd: message.cwd, name: message.name, pid: message.pid, status: null,
-        connected_at: Date.now(), last_seen: Date.now(), socket };
+        connected_at: Date.now(), last_seen: Date.now(), socket, history: new SessionHistory() };
       this.sessions.set(session.registration_id, session);
       this.byConnection.set(socket, session.registration_id);
     } else {
       session.cwd = message.cwd;
       session.name = message.name;
       session.last_seen = Date.now();
+      session.history.resetTransient();
     }
-    // Every registration starts a fresh browser draft/activity view, including idempotent repeats.
+    // Retain completed history on idempotent registration, clear draft/activity.
     this.broadcast({ version: 1, type: existing ? "session.updated" : "session.added", session: this.snapshot(session), reset: true });
     log("session.registered", { registration_id: session.registration_id });
   }

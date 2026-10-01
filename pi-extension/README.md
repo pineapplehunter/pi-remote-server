@@ -6,9 +6,19 @@ The wire contract for server developers is [PROTOCOL.md](PROTOCOL.md); exact typ
 
 ## Install
 
+### Git package in settings.json
+
+Add `"https://github.com/pineapplehunter/pi-remote-server@main"` to `packages` in `~/.pi/agent/settings.json`, preserving other settings:
+
+```json
+{"packages":["https://github.com/pineapplehunter/pi-remote-server@main"]}
+```
+
+Or run `pi install "https://github.com/pineapplehunter/pi-remote-server@main"`, then restart or `/reload`. The root manifest points to this extension and supplies its `ws` dependency. Use `pi update` to refresh the branch, or pin a commit/tag. Do not load another copy simultaneously. Remote installation requires these changes to be pushed to GitHub.
+
 ### This repository / Home Manager
 
-The gateway repository's `packages.<system>.pi-extension` output is a ready-to-load Pi package with the pinned `ws` runtime dependency included. It does **not** bundle Pi itself, install npm packages at Pi startup, or include credentials. The TypeScript implementation is copied unchanged from the supplied Pi extension package; gateway dependencies remain separate.
+The gateway repository's `packages.<system>.pi-extension` output is a ready-to-load Pi package with the pinned `ws` runtime dependency included. It does **not** bundle Pi itself, install npm packages at Pi startup, or include credentials. The implementation is based on the supplied Pi package, with explicit usage-limit announcements added and `ws` upgraded to 8.22.0. The Nix output bundles only `ws`; Pi APIs are provided by Pi.
 
 From the gateway repository root:
 
@@ -40,7 +50,7 @@ No NixOS module or Home Manager option is introduced by this repository. Preserv
 
 Requires Node >= 22.19 and Pi 0.87.1 or a compatible later API.
 
-**Dependency audit warning:** this copy preserves the supplied `ws@8.18.3` pin and npm lockfile. At verification time, `npm audit` reports memory-exhaustion/memory-disclosure advisories for `ws`, plus a high-severity `brace-expansion` advisory in Pi's development dependency tree. The Nix extension output contains `ws`, but not those Pi development dependencies. This migration is not a dependency/security upgrade; review and update the pins separately before relying on the affected dependencies against untrusted peers.
+**Dependency audit:** `ws` is pinned to patched 8.22.0 in both package manifests. `npm audit` still reports a high-severity development-only `brace-expansion` advisory in Pi's test dependency tree. Those development dependencies are not bundled in the Nix extension output.
 
 ```sh
 # From the gateway repository root:
@@ -96,6 +106,12 @@ The file is plaintext JSON, not encrypted. It is intentionally shared by normal/
 - TLS required except `ws://localhost`, `ws://127.0.0.1`, or `ws://[::1]` for development. URL credentials, queries, and fragments are rejected.
 
 Treat the server as trusted: remote input becomes normal agent input and can cause Pi to run its tools with your permissions. The extension does not add approvals. Conversations/tool arguments may contain other secrets; only the configured bearer token is specifically redacted in forwarded text/arguments.
+
+## Usage-limit notifications
+
+Failed assistant `message_end` events with explicit exhausted usage/quota wording or codes emit `error` with `code: "usage_limit_reached"`. The configured token is redacted, detail is clipped to 500 characters, and repeated failures in one agent run produce only one notice. The gateway broadcasts and buffers the notice in the unified conversation stream.
+
+Bare HTTP 429 / throughput rate limits, unrelated errors and successful text are not treated as exhausted usage. No account quota polling, automatic resend or predicted reset time is provided. Detection relies on provider-reported error text; unfamiliar wording may need an update. Upgrade the gateway together with this extension: older gateways reject the additional v1 error code. Other wire shapes remain unchanged.
 
 ## Local test with mock server
 
@@ -193,6 +209,7 @@ Inspected against installed Pi **0.87.1**, using its docs, declarations, runtime
 - `connection.ts`: socket lifecycle, bounded live buffering, reconnects, ping/pong heartbeat.
 - `protocol.ts`: strongly typed messages, limits, and parser.
 - `translation.ts`: text/stream/tool event translation.
+- `usage-limit.ts`: explicit provider allowance exhaustion classification and safe notification.
 - `input.ts`: follow-up injection and bounded deferral across recovery gaps.
 - `PROTOCOL.md`: server-side contract.
 - `dev/mock-server.ts`: local development server.

@@ -21,7 +21,8 @@ export function agentMessage(registry: Registry, socket: Socket, hostId: string,
       return;
     }
     if (message.type === "session.status") session.status = message.status;
-    registry.broadcast({ ...message, registration_id: session.registration_id });
+    const sequence = session.history.record(message);
+    registry.broadcast({ ...message, registration_id: session.registration_id, ...(sequence !== undefined ? { sequence } : {}) });
   } catch (error) {
     // Pi accepts only message.send. Do NOT send an incompatible gateway error to Pi.
     log("agent.rejected", { code: error instanceof ProtocolError ? error.code : "invalid_message" });

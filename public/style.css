@@ -39,12 +39,21 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .feed { flex: 1; overflow: auto; padding: 1rem; min-height: 0; }
 .message { max-width: 75ch; padding: .8rem 1rem; margin-bottom: 1rem; border-left: 3px solid var(--line); }
 .message.user { margin-left: 1.5rem; background: var(--user); border-left-color: var(--accent); }
-.message p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0 0; line-height: 1.5; }
-.message strong { font-size: .85rem; color: var(--muted); }
+.message-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.message-body.rendered { white-space: normal; }
+.message-body p { margin: .4rem 0 0; }
+.streaming .message-body { white-space: pre-wrap; }
+.message-body pre { overflow-x: auto; padding: .8rem; background: var(--bg); border: 1px solid var(--line); white-space: pre; }
+.message-body code { font-size: .9em; }
+.message-body blockquote { margin: .6rem 0; padding-left: 1rem; border-left: 3px solid var(--line); color: var(--muted); }
+.message-body table { display: block; overflow-x: auto; border-collapse: collapse; }
+.message-body th, .message-body td { border: 1px solid var(--line); padding: .3rem .5rem; }
+.message > strong { font-size: .85rem; color: var(--muted); }
 .streaming { border-left-color: var(--working); }
-.activities { border-top: 1px solid var(--line); margin-top: 1.5rem; padding-top: 1rem; color: var(--muted); }
-#activity { list-style: none; padding: 0; margin: 0; font-size: .85rem; }
-#activity li { padding: .35rem 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.activity { margin: .3rem 0 .7rem 1rem; padding: .4rem .7rem; border-left: 2px solid var(--line); color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.activity::before { content: "Tool: "; }
+.notice { padding: .7rem 1rem; margin: 1rem 0; border-left: 3px solid var(--error); color: var(--error); overflow-wrap: anywhere; }
+.notice p { white-space: pre-wrap; margin: .4rem 0 0; }
 .running { color: var(--working); }
 .failed, .error { color: var(--error); }
 .error { font-size: .85rem; padding: 0 1rem; overflow-wrap: anywhere; }

@@ -68,7 +68,7 @@ describe("real Bun HTTP / WebSocket gateway", () => {
       expect(await a2.take("message.send")).toEqual({ version: 1, type: "message.send", session_id: "s1", text: "  hello\n" });
       expect(a1.events).toHaveLength(0); expect(a3.events).toHaveLength(0);
       a2.send(event("message.delta", { delta: "look " }));
-      expect(await b.take("message.delta")).toEqual(event("message.delta", { delta: "look ", registration_id: r2 }));
+      expect(await b.take("message.delta")).toEqual(event("message.delta", { delta: "look ", registration_id: r2, sequence: 1 }));
       a2.send(event("message.completed", { role: "assistant", content: "Final content" }));
       expect((await b.take("message.completed")).content).toBe("Final content");
       a2.send(event("activity.started", { activity: { kind: "tool", tool_call_id: "c1", tool: "bash", args: { command: "bun test" } } }));
@@ -154,10 +154,11 @@ describe("real Bun HTTP / WebSocket gateway", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-security-policy")).toContain("script-src 'self'");
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(await response.text()).toContain("/public/htmx.min.js");
+      expect(response.headers.get("content-security-policy")).toContain("https://cdn.jsdelivr.net");
+      expect(await response.text()).toContain("https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js");
       const js = await fetch(`${h.base}/public/app.js`);
       expect(js.status).toBe(200); expect(js.headers.get("content-type")).toContain("javascript");
-      expect((await fetch(`${h.base}/public/htmx.min.js`)).status).toBe(200);
+      expect((await fetch(`${h.base}/public/htmx.min.js`)).status).toBe(404);
       const favicon = await fetch(`${h.base}/favicon.svg`);
       expect(favicon.status).toBe(200);
       expect(favicon.headers.get("content-type")).toContain("image/svg+xml");

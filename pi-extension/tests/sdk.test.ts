@@ -22,11 +22,11 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
   const messages = new Inbox<OutgoingMessage>();
   server.on("connection", (socket) => socket.on("message", (data) => messages.push(JSON.parse(data.toString()))));
   const next = (type: OutgoingMessage["type"]) => messages.next((message) => message.type === type);
-  const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false }, cacheWarming: "off" });
+  // Discover the repository root exactly as settings.json packages does.
+  const settings = SettingsManager.inMemory({ packages: [fileURLToPath(new URL("../../", import.meta.url))], compaction: { enabled: false }, retry: { enabled: false }, cacheWarming: "off" });
   const loader = new DefaultResourceLoader({
     cwd: root, agentDir: join(root, ".pi", "agent"), settingsManager: settings,
-    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
-    additionalExtensionPaths: [fileURLToPath(new URL("../extensions/pi-remote/index.ts", import.meta.url))],
+    noSkills: true, noPromptTemplates: true, noThemes: true,
   });
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   let releaseFirst: () => void = () => {};
@@ -35,6 +35,7 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
     await saveConfig({ version: 1, url, host_id: "sdk-test", token: "private-bearer-token" });
     await loader.reload();
     assert.deepEqual(loader.getExtensions().errors, []);
+    assert.equal(loader.getExtensions().extensions.length, 1);
     const modelRuntime = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: join(root, "models.json") });
     await modelRuntime.setRuntimeApiKey("openai", "not-a-real-provider-key");
     const model: Model<"openai-completions"> = {
@@ -97,6 +98,19 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
     assert.ok(JSON.stringify(users).includes("Now do the follow-up"));
     assert.equal(calls, 3);
     assert.equal(session.getLastAssistantText(), "Follow-up received.");
+    // A provider's failed AssistantMessage reaches message_end on the real Pi lifecycle.
+    session.agent.streamFunction = (activeModel) => {
+      const stream = createAssistantMessageEventStream();
+      const error: AssistantMessage = { role: "assistant", content: [], api: activeModel.api, provider: activeModel.provider, model: activeModel.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit. private-bearer-token", timestamp: Date.now() };
+      stream.push({ type: "error", reason: "error", error }); stream.end();
+      return stream;
+    };
+    await session.prompt("Demonstrate quota reporting");
+    const limit = await messages.next(message => message.type === "error" && message.code === "usage_limit_reached");
+    assert.equal(limit.type, "error");
+    if (limit.type === "error") { assert.match(limit.message, /ChatGPT usage limit/); assert.ok(!limit.message.includes("private-bearer-token")); }
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     assert.equal((await next("session.unregister")).session_id, registration.session_id);
   } finally {

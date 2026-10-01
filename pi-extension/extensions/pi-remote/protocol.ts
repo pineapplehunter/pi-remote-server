@@ -13,7 +13,8 @@ export type ErrorCode =
   | "unsupported_type"
   | "text_too_large"
   | "wrong_session"
-  | "injection_failed";
+  | "injection_failed"
+  | "usage_limit_reached";
 
 interface Envelope {
   version: typeof VERSION;

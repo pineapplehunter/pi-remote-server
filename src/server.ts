@@ -10,13 +10,13 @@ const publicFiles = new Map([
   ["/favicon.svg", new URL("../public/favicon.svg", import.meta.url)],
   ["/public/app.js", new URL("../public/app.js", import.meta.url)],
   ["/public/style.css", new URL("../public/style.css", import.meta.url)],
-  ["/public/htmx.min.js", new URL("../public/htmx.min.js", import.meta.url)],
+
 ]);
 const headers = {
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "same-origin",
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 };
 const html = (body: string, status = 200) => new Response(body, { status, headers: { ...headers, "Content-Type": "text/html; charset=utf-8" } });
 
@@ -47,7 +47,7 @@ export function startServer(config: Config, credentials: Credentials) {
       if (asset) return new Response(Bun.file(asset), { headers });
       if (url.pathname === "/") {
         const session = registry.sessions.get(url.searchParams.get("session") ?? "");
-        return html(page(registry.list(), session ? registry.snapshot(session) : undefined));
+        return html(page(registry.list(), session ? registry.snapshot(session) : undefined, session?.history.snapshot()));
       }
       if (url.pathname === "/ui/sessions") return html(sessionList(registry.list()));
       if (url.pathname === "/ui/empty") return html(emptyDetail());
@@ -55,7 +55,7 @@ export function startServer(config: Config, credentials: Credentials) {
       if (match) {
         // Registration keys are server-created UUIDs; Pi's opaque IDs never enter URL paths.
         const session = registry.sessions.get(match[1]!);
-        return session ? html(selectedSession(registry.snapshot(session))) : html("<p>This Pi connection is no longer available. Select a live session.</p>", 404);
+        return session ? html(selectedSession(registry.snapshot(session), session.history.snapshot())) : html("<p>This Pi connection is no longer available. Select a live session.</p>", 404);
       }
       return new Response("Not found", { status: 404, headers });
     },

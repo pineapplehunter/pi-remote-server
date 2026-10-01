@@ -9,7 +9,9 @@ export class Client {
   readonly events: Event[] = [];
   private readonly listeners = new Set<() => void>();
   constructor(url: string, headers: Record<string, string> = {}) {
-    this.socket = new WebSocket(url, { headers });
+    // Bun accepts a headers options object; jsdom's DOM typings describe only browser protocols.
+    const ClientWebSocket = WebSocket as unknown as new (url: string, options: { headers: Record<string, string> }) => WebSocket;
+    this.socket = new ClientWebSocket(url, { headers });
     this.opened = new Promise((resolve, reject) => {
       this.socket.addEventListener("open", () => resolve(), { once: true });
       this.socket.addEventListener("error", () => reject(new Error("WebSocket open failed")), { once: true });
