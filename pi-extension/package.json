@@ -11,7 +11,7 @@
     "mock": "node --experimental-transform-types dev/mock-server.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "ws": "8.18.3" },
+  "dependencies": { "ws": "8.22.0" },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
