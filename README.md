@@ -58,7 +58,7 @@ bun src/index.ts
 
 The token file must be readable only by the service account/administrator. `PI_REMOTE_TOKEN_FILE` is required; the process exits nonzero if configuration, file reading, JSON validation, or duplicate checking fails. Credentials load **once at startup**; restart to change them. `HOST` defaults to `127.0.0.1`, `PORT` to `3000`. `PUBLIC_ORIGIN` is optional for direct loopback use, but set it behind a TLS proxy. It must be a single HTTP(S) origin, without path/query/credentials.
 
-The supplied `flake.nix` provides Bun as a development tool. If Bun is not on your PATH:
+The supplied `flake.nix` provides Bun for the gateway and Node.js/npm for the Pi extension's development tools. If Bun is not on your PATH:
 
 ```sh
 nix develop
@@ -68,7 +68,7 @@ bun run typecheck
 # Then use the same export/start commands above.
 ```
 
-Only Zod is a runtime package dependency. TypeScript, Bun types, HTMX (vendored into `public/`) and Happy DOM are development dependencies. HTMX and its license are checked in; deployment does not fetch a CDN or run a bundler. Installing production-only packages is possible with `bun install --production --frozen-lockfile`.
+The gateway's only runtime package dependency is Zod. TypeScript, Bun types, HTMX (vendored into `public/`) and Happy DOM are development dependencies. HTMX and its license are checked in; deployment does not fetch a CDN or run a bundler. Installing production-only packages is possible with `bun install --production --frozen-lockfile`.
 
 ## Docker / OCI image
 
@@ -134,7 +134,7 @@ For a locally built image, change the Compose `image` to `pi-remote-server:lates
 
 [`.github/workflows/upload-oci.yml`](.github/workflows/upload-oci.yml) uses the same SHA-pinned checkout and Nix-install actions as the reference repository:
 
-- Pull requests targeting `main`: install locked dependencies, run `bun test` and type-check. No image publishing or GHCR login on pull requests.
+- Pull requests targeting `main`: install locked dependencies, run gateway and Pi extension tests/type-checks, and build the ready-to-load Pi extension package. No image publishing or GHCR login on pull requests.
 - Pushes to `main` (or manual runs on `main`): after tests pass, `nix build`, stream the image into Docker, smoke-test startup/HTTP/favicon/agent authentication with disposable mounted credentials, then publish `latest`.
 - The publishing job has `packages: write` and logs in using the built-in `GITHUB_TOKEN`. No additional registry secret is required.
 - The target is `ghcr.io/<lowercase GitHub owner/repository>:latest`, derived from `GITHUB_REPOSITORY`. At the assumed repository name this is `ghcr.io/pineapplehunter/pi-remote-server:latest`; adjust Compose if you use a different name.
@@ -147,6 +147,41 @@ docker pull ghcr.io/pineapplehunter/pi-remote-server:latest
 ```
 
 Use that image instead of `pi-remote-server:latest` in the Docker run command. GHCR packages may initially be private: set package visibility to public for anonymous pulls, or authenticate Docker with a `read:packages` token for private pulls. Ensure repository Actions may write packages. No image is published merely by adding these files; push them to your GitHub `main` branch to run the workflow.
+
+## Included Pi extension package
+
+The current supplied extension package is copied to [`pi-extension/`](pi-extension/README.md), including its original implementation, npm lockfile, protocol, development mock and tests. Extension source is unchanged. Its commands are `/remote-login`, `/remote-status` and `/remote-rename`; credentials live at `~/.pi/agent/remote.json`, outside this repository and the Nix store. This current version includes bounded input deferral across retry/compaction gaps without changing the v1 message shapes.
+
+It is deliberately a **separate Pi package**, not a resource in the gateway's root `package.json`. Gateway and extension dependencies/testing are isolated, and the extension is not included in the Docker image. Root `bunfig.toml` limits `bun test` to gateway tests; the copied package uses its original Node test runner.
+
+For your NixOS/Home Manager configuration, add this repository as a flake input and replace the old package path with:
+
+```nix
+inputs.pi-remote-server.packages.${pkgs.stdenv.hostPlatform.system}.pi-extension
+```
+
+Put that output's string path in your existing Pi `packages`/managed `piPackages` list. It contains the package manifest, unchanged TypeScript source and the pinned `ws` runtime dependency from `pi-extension/package-lock.json`. Pi supplies its own APIs; they are not bundled. Use this built output rather than a raw read-only source directory with missing npm dependencies. See the extension README for a full input example.
+
+Local build / one-off loading, from the repository root:
+
+```sh
+nix build .#pi-extension
+pi --no-extensions -e "$(readlink -f result)"
+```
+
+Source development / tests:
+
+```sh
+cd pi-extension
+npm ci --ignore-scripts
+npm run typecheck
+npm test
+pi --no-extensions -e ./extensions/pi-remote/index.ts
+```
+
+Do not load both the old extension and this package at the same time. This repository does not modify your NixOS configuration or introduce a Home Manager module.
+
+Verification: all **25 copied extension tests** pass, including real Pi SDK loading and idle/busy WebSocket input; the extension type-checks and its Nix package builds. Pi's real resource loader also successfully discovers and loads the immutable built package, with only `ws` bundled. The gateway's **20 tests** still pass. The original manifests/lockfile are preserved: `npm audit` currently reports vulnerabilities in the extension's pinned `ws@8.18.3` and a development-only `brace-expansion` dependency. See the extension README's audit warning. These dependencies are not added to the gateway image.
 
 ## Architecture and ownership
 
@@ -311,6 +346,16 @@ Created application files (existing Nix/environment files retained):
 ├── flake.nix
 ├── flake.lock
 ├── bun.lock
+├── bunfig.toml
+├── pi-extension/
+│   ├── README.md
+│   ├── PROTOCOL.md
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── extensions/pi-remote/  # Unchanged supplied extension source
+│   ├── dev/mock-server.ts
+│   └── tests/
 ├── docs/
 │   └── pi-protocol-v1.md
 ├── package.json
@@ -339,4 +384,4 @@ Created application files (existing Nix/environment files retained):
 └── tsconfig.json
 ```
 
-`.gitignore` excludes `node_modules`, local credentials and `.env`; `flake.nix` provides Bun for development and Linux OCI image/dependency packages. `agents.example.json` is never served. The existing local `agents.json` is not modified or included in the image.
+`.gitignore` excludes `node_modules`, local credentials and `.env`; `flake.nix` provides Bun/Node.js for development, Linux OCI image/dependency packages, and a ready-to-load `pi-extension` package. `agents.example.json` is never served. The existing local `agents.json` is not modified or included in the image.

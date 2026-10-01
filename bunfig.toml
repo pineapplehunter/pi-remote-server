@@ -1,0 +1,3 @@
+[test]
+# The copied Pi package has its own Node test runner and dependency installation.
+root = "./test"

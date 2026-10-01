@@ -48,6 +48,25 @@
             outputHashAlgo = "sha256";
             outputHash = "sha256-Uk3iQXzxYPNpdkLVm3b6iuB29+PqXtquBZ+5zFUguRE=";
           };
+          extensionManifest = builtins.fromJSON (builtins.readFile ./pi-extension/package.json);
+          extensionLock = builtins.fromJSON (builtins.readFile ./pi-extension/package-lock.json);
+          ws = extensionLock.packages."node_modules/ws";
+          wsSource = pkgs.fetchurl {
+            url = ws.resolved;
+            hash = ws.integrity;
+          };
+          piExtension =
+            # ws has no mandatory transitive dependencies. Fail if the package
+            # gains another runtime dependency instead of silently omitting it.
+            assert builtins.attrNames extensionManifest.dependencies == [ "ws" ];
+            pkgs.runCommand "pi-remote-extension" { } ''
+              mkdir -p $out/node_modules/ws
+              cp -r ${./pi-extension/extensions} $out/extensions
+              cp ${./pi-extension/package.json} $out/package.json
+              cp ${./pi-extension/PROTOCOL.md} $out/PROTOCOL.md
+              cp ${./pi-extension/README.md} $out/README.md
+              tar -xzf ${wsSource} --strip-components=1 -C $out/node_modules/ws
+            '';
           app = pkgs.runCommand "pi-remote-app" { } ''
             mkdir -p $out/app
             cp -r ${./src} $out/app/src
@@ -57,7 +76,10 @@
           '';
         in
         {
-          packages = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
+          packages = {
+            pi-extension = piExtension;
+          }
+          // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
             default = docker;
             docker = pkgs.dockerTools.streamLayeredImage {
               name = "pi-remote-server";
@@ -87,7 +109,10 @@
           };
 
           devShells.default = pkgs.mkShell {
-            packages = [ pkgs.bun ];
+            packages = [
+              pkgs.bun
+              pkgs.nodejs
+            ];
           };
 
           formatter = pkgs.nixfmt-tree;

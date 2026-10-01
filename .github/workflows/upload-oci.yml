@@ -32,7 +32,14 @@ jobs:
             bun install --frozen-lockfile
             bun test
             bun run typecheck
+            cd pi-extension
+            npm ci --ignore-scripts
+            npm run typecheck
+            npm test
           '
+
+      - name: Build Pi extension package
+        run: nix build .#pi-extension --no-link
 
   build-image:
     needs: test
