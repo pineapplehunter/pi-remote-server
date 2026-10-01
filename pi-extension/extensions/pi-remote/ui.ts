@@ -39,20 +39,6 @@ export interface RemoteControls {
 }
 
 export function registerRemoteCommands(pi: ExtensionAPI, controls: RemoteControls): void {
-  pi.registerCommand("remote-rename", {
-    description: "Rename the current Pi session interactively",
-    handler: async (_args, ctx) => {
-      if (!ctx.hasUI) return;
-      const { signal } = controls.snapshot();
-      if (!signal || signal.aborted) return;
-      const name = await ctx.ui.input("Rename session", ctx.sessionManager.getSessionName() ?? "New session name", { signal });
-      if (name === undefined || signal.aborted || !name.trim()) return;
-      // Pi persists the name and emits session_info_changed for the remote bridge.
-      pi.setSessionName(name.trim());
-      ctx.ui.notify("Session renamed.", "info");
-    },
-  });
-
   pi.registerCommand("remote-login", {
     description: "Configure remote WebSocket server, host ID, and bearer token",
     handler: async (_args, ctx) => {

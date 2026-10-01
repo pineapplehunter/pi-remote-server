@@ -69,17 +69,15 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
     };
     const queue = new Inbox<readonly string[]>();
     session.subscribe((event) => { if (event.type === "queue_update") queue.push(event.followUp); });
-    let renamePrompted = false;
     await session.bindExtensions({ mode: "rpc", uiContext: {
-      input: async (title: string) => { assert.equal(title, "Rename session"); renamePrompted = true; return "  Renamed SDK session  "; },
       notify() {}, setStatus() {}, theme: { fg: (_color: string, text: string) => text },
     } as unknown as ExtensionUIContext });
     const socket = await sockets.next();
     const registration = await next("session.register");
     assert.equal(registration.session_id, session.sessionManager.getSessionId());
     await next("session.status");
-    await session.prompt("/remote-rename");
-    assert.equal(renamePrompted, true);
+    // Pi's built-in /name command uses this API and emits session_info_changed.
+    session.setSessionName("Renamed SDK session");
     assert.equal(session.sessionManager.getSessionName(), "Renamed SDK session");
     assert.deepEqual(await next("session.updated"), { version: 1, type: "session.updated",
       session_id: registration.session_id, name: "Renamed SDK session" });

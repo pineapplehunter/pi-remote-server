@@ -38,40 +38,15 @@ test("login identifies the rejected field without echoing credentials or invalid
   }
 });
 
-test("remote-rename prompts offline and safely handles cancellation, blank input, and stale sessions", async () => {
+test("remote commands only register login and status", () => {
   const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
-  const names: string[] = [];
-  const notices: string[] = [];
-  const answers = ["  Debug the failing tests  ", undefined, " \t "];
-  const lifetime = new AbortController();
-  const pi = {
-    registerCommand: (name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) => { commands.set(name, command); },
-    setSessionName: (name: string) => { names.push(name); },
-  } as ExtensionAPI;
-  registerRemoteCommands(pi, {
-    snapshot: () => ({ state: "disabled", signal: lifetime.signal }),
-    configure: () => assert.fail("Renaming must not require a remote connection"),
+  registerRemoteCommands({
+    registerCommand: (name, command) => { commands.set(name, command); },
+  } as ExtensionAPI, {
+    snapshot: () => ({ state: "disabled" }),
+    configure: () => {},
   });
-  assert.deepEqual([...commands.keys()], ["remote-rename", "remote-login", "remote-status"]);
-  const ctx = {
-    hasUI: true, sessionManager: { getSessionName: () => "Current name" },
-    ui: { notify: (message: string) => notices.push(message),
-      input: async (title: string, placeholder: string, options: { signal: AbortSignal }) => {
-        assert.equal(title, "Rename session"); assert.equal(placeholder, "Current name");
-        assert.equal(options.signal, lifetime.signal); return answers.shift();
-      } },
-  } as unknown as ExtensionCommandContext;
-  const rename = commands.get("remote-rename")!.handler;
-  await rename("", ctx);
-  assert.deepEqual(names, ["Debug the failing tests"]);
-  assert.deepEqual(notices, ["Session renamed."]);
-  await rename("", ctx); await rename("", ctx);
-  assert.equal(names.length, 1);
-  await rename("", { hasUI: false } as ExtensionCommandContext);
-  assert.equal(names.length, 1);
-  ctx.ui.input = async () => { lifetime.abort(); return "Wrong session"; };
-  await rename("", ctx);
-  assert.equal(names.length, 1);
+  assert.deepEqual([...commands.keys()], ["remote-login", "remote-status"]);
 });
 
 test("connection indicator is only a colored dot and hidden when disabled", () => {

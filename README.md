@@ -60,7 +60,7 @@ pi install "https://github.com/pineapplehunter/pi-remote-server@main"
 
 Restart Pi or `/reload`. The repository root's `pi.extensions` manifest points to `pi-extension/extensions/pi-remote/index.ts`; Pi installs the root runtime dependencies for Git sources. `main` is a moving branch; use a commit/tag instead for reproducibility, and `pi update` to refresh an installed Git source. The change must be pushed to GitHub before remote installs can fetch it.
 
-Requires Pi **0.87.1** or a compatible later API and Node >=22.19. Commands: `/remote-login`, `/remote-status`, `/remote-rename`. Credentials live at **`~/.pi/agent/remote.json`**, mode 0600, outside this repository/Nix store. Do not put tokens in `settings.json` or Nix expressions. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
+Requires Pi **0.87.1** or a compatible later API and Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Credentials live at **`~/.pi/agent/remote.json`**, mode 0600, outside this repository/Nix store. Do not put tokens in `settings.json` or Nix expressions. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
 
 ### Nix / Home Manager
 

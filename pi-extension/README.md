@@ -97,7 +97,7 @@ If upgrading from the earlier credential location, move `~/.pi/remote.json` to `
 
 The file is plaintext JSON, not encrypted. It is intentionally shared by normal/work Pi profiles. No watcher or cross-process credential synchronization is implemented: `/remote-login` changes this Pi immediately; other running instances pick them up on reload/restart/session replacement. To disconnect, manually remove `~/.pi/agent/remote.json` and run `/reload` (or restart) in each running Pi instance. File deletion alone does not disconnect an existing socket.
 
-- `/remote-rename`: open a name input dialog for the current Pi session, showing its current name as a hint. Works offline; forwards `session.updated` when connected. Escape or blank input leaves the name unchanged. Supported in interactive Pi and dialog-capable RPC clients.
+- `/name <name>`: use Pi's built-in command to rename the current session. Works offline; forwards `session.updated` when connected.
 - `/remote-status`: connection state, server, host ID, session ID, and credential file location—never the token.
 - Footer: one `●`, green when connected, yellow while connecting, dim while offline, red on authentication failure. Hidden when unconfigured. Use `/remote-status` for details.
 - Missing/invalid configuration: no startup prompt and no network connection. Invalid files produce one safe warning.
@@ -162,7 +162,7 @@ Additional checks:
 - Send a wrong ID: mock reports `error ... wrong_session`, no input is injected.
 - Send an unsupported type or version: protocol error, Pi continues.
 - `/new`, `/resume`, `/fork`, `/reload` in Pi: old registration unregisters best effort and the active session registers again.
-- `/remote-rename`: enter a new name in the dialog and observe `session.updated`.
+- `/name New session name` in Pi: rename the session and observe `session.updated`.
 
 `/sessions` and `/drop` are mock commands only, not production protocol messages. Node's experimental type-transformation warning is expected for development scripts; Pi loads extension TypeScript through its own jiti loader.
 
