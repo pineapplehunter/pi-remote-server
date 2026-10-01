@@ -12,6 +12,7 @@ Completed requests:
 - [06: Tool-call visibility](06-tool-visibility.md)
 - [07: Improved composer and Ctrl+Enter](07-chat-composer.md)
 - [08: Steer or follow-up delivery](08-steer-followup.md)
+- [09: Pueue smoke verification](09-pueue-check.md)
 
 Current requests: none.
 
