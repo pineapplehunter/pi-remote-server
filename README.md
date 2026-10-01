@@ -34,7 +34,7 @@ export PI_REMOTE_TOKEN_FILE="$PWD/agents.json"
 bun src/index.ts
 ```
 
-Open `http://127.0.0.1:3000`. Install/configure the extension below; `/remote-login` uses `ws://127.0.0.1:3000/agent/ws`, host `laptop`, and its matching token. Start Pi sessions on the host, not in this UI. Browser input remains literal text; busy Pi queues follow-ups.
+Open `http://127.0.0.1:3000`. Install/configure the extension below; `/remote-login` uses `ws://127.0.0.1:3000/agent/ws`, host `laptop`, and its matching token. Start Pi sessions on the host, not in this UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available in the composer.
 
 Behind a TLS proxy, set `PUBLIC_ORIGIN=https://pi.s.ihavenojob.work` (your actual origin). `HOST` defaults to loopback, `PORT` to 3000. `PI_REMOTE_TOKEN_FILE` is required. `PUBLIC_ORIGIN` must be one HTTP(S) origin without path, query or credentials. Credentials are validated and loaded **once at startup**; invalid files/duplicates abort startup. Restart to rotate tokens. Keep the file readable only by its owner/administrator.
 
@@ -101,7 +101,9 @@ Chat, assistant drafts, tool activity and Pi notices share **one chronological s
 
 Use **Tool calls** in the chat header to show/hide activity rows. The browser remembers this display preference across sessions/reloads using localStorage (only the boolean preference, never conversation data). Hiding tools does not stop receiving/updating/buffering them or hide chat/usage-limit notices. If storage is blocked, the toggle still works for the current page.
 
-The composer uses a rounded, auto-growing multiline field and a separate Send action. **Ctrl+Enter sends; Enter inserts a newline.** Repeated keys and active IME composition do not send. Send stays disabled for blank/offline input, but the draft remains editable; busy Pi still accepts follow-ups. Successful sends shrink/clear the field; a matched routing error restores its text and height. Height is capped so long drafts scroll inside the input. The design adapts [LibreChat and assistant-ui composer patterns](docs/composer-design.md), without adding React, attachments or unsupported stop controls.
+The composer uses a rounded, auto-growing multiline field and a separate Send action. **Ctrl+Enter sends; Enter inserts a newline.** Repeated keys and active IME composition do not send. Send stays disabled for blank/offline input, but the draft remains editable; busy Pi accepts the selected delivery mode. Successful sends shrink/clear the field; a matched routing error restores its text, delivery mode and height. Height is capped so long drafts scroll inside the input. The design adapts [LibreChat and assistant-ui composer patterns](docs/composer-design.md), without adding React, attachments or unsupported stop controls.
+
+Choose **Send as → Follow-up** (default) to wait for the current run to finish, or **Steer** to redirect the active run at Pi's next steering opportunity. Both Send and Ctrl+Enter use this choice. Either mode starts a normal turn when Pi is idle; steering is not an immediate abort. The choice resets to Follow-up when opening another view/reloading and is not stored. Retry/compaction-gap deferral retains each message's selected mode. **Upgrade gateway and Pi extension together:** older extensions ignore the optional `delivery` field and still use follow-up delivery.
 
 The gateway retains a **bounded, in-memory materialized view per live registration**:
 
@@ -186,12 +188,12 @@ Each Pi process owns a socket. Host IDs map to socket sets. A Pi session ID can 
 
 All HTTP routes are GET-only (405 otherwise); unknown routes return 404. Static routes are explicitly whitelisted: `/public/app.js`, `/public/style.css`, `/favicon.svg`. Dynamic fragments: `/ui/sessions`, `/ui/sessions/:registrationId`, `/ui/empty`; `/` optionally accepts `?session=<UUID>`. Responses are `no-store`, no-sniff, same-origin-referrer with CSP allowing scripts only from self/jsDelivr, and blocking objects/framing/inline evaluation. HTMX evaluation, injected scripts, indicator styles and history caching are disabled.
 
-Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). Zod validates text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. The only server → Pi message is `{version:1,type:"message.send",session_id,text}`.
+Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). Zod validates text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. The only server → Pi message is `{version:1,type:"message.send",session_id,text}` with optional `delivery: "steer" | "followUp"` (default: `followUp`).
 
 Browser → gateway:
 
 ```json
-{"version":1,"type":"message.send","registration_id":"<UUID>","session_id":"s1","text":"Run the tests","request_id":"optional-correlation-ID"}
+{"version":1,"type":"message.send","registration_id":"<UUID>","session_id":"s1","text":"Run the tests","delivery":"followUp","request_id":"optional-correlation-ID"}
 {"version":1,"type":"session.history","registration_id":"<UUID>","session_id":"s1"}
 ```
 

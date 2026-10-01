@@ -27,6 +27,12 @@
       button.title = showTools ? "Hide tool calls" : "Show tool calls";
     }
   }
+  function syncDeliveryHelp() {
+    const help = document.getElementById("delivery-help");
+    if (help) help.textContent = document.getElementById("delivery")?.value === "steer"
+      ? "Steer redirects the active run at the next opportunity."
+      : "Follow-up waits for the current run to finish.";
+  }
   function resizeComposer() {
     const text = document.getElementById("text");
     if (!text) return;
@@ -89,6 +95,7 @@
     composing = false;
     app.classList.toggle("chat-open", !!selected);
     applyToolVisibility();
+    syncDeliveryHelp();
     resizeComposer();
     const feed = document.querySelector(".feed");
     if (feed) feed.scrollTop = feed.scrollHeight;
@@ -212,7 +219,12 @@
       else connection.textContent = event.message;
       if (event.request_id === lastSubmission?.requestId && selected?.registrationId === lastSubmission.registrationId) {
         const text = document.getElementById("text");
-        if (!text.value) { text.value = lastSubmission.text; resizeComposer(); }
+        if (!text.value) {
+          text.value = lastSubmission.text;
+          document.getElementById("delivery").value = lastSubmission.delivery;
+          syncDeliveryHelp();
+          resizeComposer();
+        }
       }
       return;
     }
@@ -274,6 +286,7 @@
     if (follow) feed.scrollTop = feed.scrollHeight;
   });
   document.addEventListener("input", event => { if (event.target.id === "text") resizeComposer(); });
+  document.addEventListener("change", event => { if (event.target.id === "delivery") syncDeliveryHelp(); });
   window.addEventListener("resize", resizeComposer);
   document.addEventListener("compositionstart", event => { if (event.target.id === "text") composing = true; });
   document.addEventListener("compositionend", event => { if (event.target.id === "text") composing = false; });
@@ -291,10 +304,11 @@
     if (!text.value.trim()) return;
     if (new TextEncoder().encode(text.value).length > 102400) { showError("Message exceeds 100 KiB UTF-8."); return; }
     const requestId = crypto.randomUUID();
+    const delivery = document.getElementById("delivery").value;
     try {
       socket.send(JSON.stringify({ version: 1, type: "message.send", registration_id: selected.registrationId,
-        session_id: selected.sessionId, text: text.value, request_id: requestId }));
-      lastSubmission = { requestId, registrationId: selected.registrationId, text: text.value };
+        session_id: selected.sessionId, text: text.value, delivery, request_id: requestId }));
+      lastSubmission = { requestId, registrationId: selected.registrationId, text: text.value, delivery };
       text.value = "";
       resizeComposer();
       text.focus({ preventScroll: true });

@@ -45,9 +45,11 @@ describe("agent protocol v1", () => {
 });
 
 describe("browser protocol", () => {
-  const input = { version: 1, type: "message.send", registration_id: "r1", session_id: "s1", text: "  hello\n" };
+  const input = { version: 1, type: "message.send", registration_id: "r1", session_id: "s1", text: "  hello\n" } as const;
   test("preserves valid whitespace and enforces decoded UTF-8 size", () => {
-    expect(parseBrowserMessage(JSON.stringify(input))).toMatchObject({ text: "  hello\n" });
+    expect(parseBrowserMessage(JSON.stringify(input))).toEqual(input);
+    for (const delivery of ["steer", "followUp"]) expect(parseBrowserMessage(JSON.stringify({ ...input, delivery }))).toMatchObject({ delivery });
+    for (const delivery of ["followup", "abort", null, 3]) expect(code(() => parseBrowserMessage(JSON.stringify({ ...input, delivery })))).toBe("invalid_message");
     expect(parseBrowserMessage(JSON.stringify({ ...input, text: "x".repeat(MAX_TEXT_BYTES) }))).toMatchObject({ text: "x".repeat(MAX_TEXT_BYTES) });
     expect(parseBrowserMessage(JSON.stringify({ version: 1, type: "session.history", registration_id: "r1", session_id: "s1" })).type).toBe("session.history");
     expect(code(() => parseBrowserMessage(JSON.stringify({ ...input, text: "é".repeat(MAX_TEXT_BYTES / 2 + 1) })))).toBe("text_too_large");

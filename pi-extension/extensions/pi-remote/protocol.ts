@@ -6,6 +6,7 @@ export const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type ShutdownReason = "quit" | "reload" | "new" | "resume" | "fork";
 export type AgentStatus = "working" | "idle";
+export type DeliveryMode = "steer" | "followUp";
 export type ErrorCode =
   | "invalid_json"
   | "invalid_message"
@@ -24,6 +25,7 @@ interface Envelope {
 export interface SendMessage extends Envelope {
   type: "message.send";
   text: string;
+  delivery?: DeliveryMode;
 }
 
 export type OutgoingMessage = Envelope & (
@@ -86,8 +88,14 @@ export function parseServerMessage(raw: string, currentSessionId: string): Parse
   if (Buffer.byteLength(message.text, "utf8") > MAX_TEXT_BYTES) {
     return failure("text_too_large", "text exceeds 100 KiB UTF-8.");
   }
+  if (message.delivery !== undefined && message.delivery !== "steer" && message.delivery !== "followUp") {
+    return failure("invalid_message", "delivery must be steer or followUp.");
+  }
   return {
     ok: true,
-    message: { version: VERSION, type: "message.send", session_id: message.session_id, text: message.text },
+    message: {
+      version: VERSION, type: "message.send", session_id: message.session_id, text: message.text,
+      ...(message.delivery === undefined ? {} : { delivery: message.delivery }),
+    },
   };
 }

@@ -13,7 +13,8 @@ export function browserMessage(registry: Registry, socket: Socket, raw: string |
         session_id: session.session_id, history: session.history.snapshot() });
       return;
     }
-    const outgoing: SendMessage = { version: 1, type: "message.send", session_id: session.session_id, text: message.text };
+    const outgoing: SendMessage = { version: 1, type: "message.send", session_id: session.session_id, text: message.text,
+      ...(message.delivery !== undefined ? { delivery: message.delivery } : {}) };
     if (!send(session.socket, outgoing)) {
       registry.disconnectAgent(session.socket, session.host_id);
       throw new ProtocolError("session_unavailable", "Pi is disconnected. The message was not forwarded.");

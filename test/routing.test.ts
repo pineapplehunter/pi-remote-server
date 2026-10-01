@@ -67,6 +67,13 @@ describe("real Bun HTTP / WebSocket gateway", () => {
       b.send({ version: 1, type: "message.send", registration_id: r2, session_id: "s1", text: "  hello\n", request_id: "request1" });
       expect(await a2.take("message.send")).toEqual({ version: 1, type: "message.send", session_id: "s1", text: "  hello\n" });
       expect(a1.events).toHaveLength(0); expect(a3.events).toHaveLength(0);
+      for (const delivery of ["steer", "followUp"]) {
+        b.send({ version: 1, type: "message.send", registration_id: r2, session_id: "s1", text: "chosen mode", delivery });
+        expect(await a2.take("message.send")).toEqual({ version: 1, type: "message.send", session_id: "s1", text: "chosen mode", delivery });
+      }
+      b.send({ version: 1, type: "message.send", registration_id: r2, session_id: "s1", text: "bad mode", delivery: "abort" });
+      expect((await b.take("gateway.error")).code).toBe("invalid_message");
+      expect(a2.events).toHaveLength(0);
       a2.send(event("message.delta", { delta: "look " }));
       expect(await b.take("message.delta")).toEqual(event("message.delta", { delta: "look ", registration_id: r2, sequence: 1 }));
       a2.send(event("message.completed", { role: "assistant", content: "Final content" }));

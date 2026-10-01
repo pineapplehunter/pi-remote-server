@@ -68,7 +68,7 @@ export default function remoteExtension(pi: ExtensionAPI): void {
         // Validate against SessionManager again at injection time, not a remote-provided ID.
         const parsed = parseServerMessage(raw, session.ctx.sessionManager.getSessionId());
         if (!parsed.ok) { protocolError(session, parsed.error); return; }
-        session.input?.receive(parsed.message.text, session.busy);
+        session.input?.receive(parsed.message.text, session.busy, parsed.message.delivery);
       },
     });
     session.connection = connection;

@@ -76,9 +76,15 @@ Only this message type is accepted:
 {"version":1,"type":"message.send","session_id":"s1","text":"Say hello from the remote client"}
 ```
 
-Validate exact numeric `version: 1`, supported `type`, non-empty string `session_id`, matching active session, and non-whitespace string `text` within the limit. Unknown object properties are ignored. Whitespace around otherwise valid text is preserved.
+```json
+{"version":1,"type":"message.send","session_id":"s1","text":"Change direction","delivery":"steer"}
+```
 
-Idle input is injected through Pi's normal user-message API. Busy input is queued as `followUp`, never used to steer/interrupt. During automatic retry/compaction gaps, a bounded session-local input queue (32 messages / 1 MiB) defers delivery until Pi streams again or settles; queue overflow returns `injection_failed`. Configuration changes/session replacement discard those transient pending inputs. Slash-command/template expansion is disabled: input is literal conversation text. The eventual `message.completed` for the user input is its normal conversation echo, not an acceptance acknowledgment.
+`delivery` is optional and accepts `"steer"` or `"followUp"`; omission retains the original `followUp` behavior. Invalid values return `invalid_message` without echoing the payload. Validate exact numeric `version: 1`, supported `type`, non-empty string `session_id`, matching active session, and non-whitespace string `text` within the limit. Other unknown object properties are ignored. Whitespace around otherwise valid text is preserved.
+
+Idle input of either mode starts a normal turn. While busy, `steer` uses Pi's normal steering delivery semantics; it does not abort the current operation immediately or guarantee an immediate response. `followUp` waits until the current agent run finishes. During automatic retry/compaction gaps, a bounded session-local input queue (32 messages / 1 MiB) defers each message and its selected mode until Pi streams again or settles; queue overflow returns `injection_failed`. Configuration changes/session replacement discard those transient pending inputs. Slash-command/template expansion is disabled: input is literal conversation text. The eventual `message.completed` for the user input is its normal conversation echo, not an acceptance acknowledgment.
+
+Upgrade the gateway and extension together to enable steering end-to-end. An older extension ignores the unknown `delivery` property and continues to send all input as `followUp`.
 
 Errors: `invalid_json`, `invalid_message`, `unsupported_version`, `unsupported_type`, `text_too_large`, `wrong_session`, `injection_failed` (synchronous API failure only). Error wording is human-readable and not stable; use `code`. Pi handles asynchronous agent errors itself; explicit usage/quota exhaustion additionally emits the notification described above. Binary frames return `invalid_message`. Frame size violations may close instead of returning an error.
 

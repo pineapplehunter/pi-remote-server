@@ -153,7 +153,7 @@ In the mock terminal, enter `/sessions`, copy the ID, then paste:
 {"version":1,"type":"message.send","session_id":"PASTE_SESSION_ID","text":"Say hello from the remote client"}
 ```
 
-Repeat while Pi is working to verify follow-up delivery without interrupting the current run.
+Repeat while Pi is working to verify follow-up delivery without interrupting the current run. A v1 message may optionally include `"delivery":"steer"` instead of the default `followUp` to request Pi's normal steering semantics; steering is not an abort and does not guarantee an immediate response. Both modes start normal turns when Pi is idle. During retry/compaction recovery, a bounded queue defers each message with its selected mode. Upgrade gateway and extension together: an older extension ignores `delivery` and keeps using `followUp`.
 
 Additional checks:
 
@@ -192,11 +192,11 @@ Inspected against installed Pi **0.87.1**, using its docs, declarations, runtime
 - The factory only registers handlers/commands. Configuration reads and socket startup happen asynchronously from `session_start`.
 - IDs/cwd/name come from `ctx.sessionManager`; names update through `session_info_changed`.
 - `session_shutdown.reason` supplies `quit|reload|new|resume|fork`; cleanup is synchronous/idempotent. Unregister can be lost during shutdown.
-- `agent_start`/`agent_settled` define working/idle; `agent_end` is deliberately not used to declare idle.
+- `agent_start`/`agent_settled` define working/idle; `agent_end` is deliberately not used to declare idle. Recovery-gap deferral keeps the chosen delivery mode per item, drains in order, and clears on config changes/session replacement.
 - Streaming uses `assistantMessageEvent.type === "text_delta"` and its incremental `delta`.
 - Tool events use `toolCallId`, `toolName`, `args`, and `isError`; results/updates are excluded.
-- `pi.sendUserMessage` triggers a normal user turn when idle and supports `deliverAs: "followUp"` while streaming. We always specify follow-up delivery as a safety fallback for local input racing remote input; it does not delay idle input. Expansion is explicitly disabled.
-- The extension API returns **void**, not an acceptance promise. Pi handles asynchronous input/provider errors; there is no application ACK. Inputs arriving during automatic retry/compaction gaps are held in a bounded session-local memory queue (32 messages / 1 MiB) until Pi streams again or settles, then delivered through its follow-up API. That queue is cleared on config changes/session replacement and is not an offline event buffer. Pi can still reject idle input during a manually invoked compaction. The server must not infer successful acceptance merely from a WebSocket write; no external retry queue is added.
+- `pi.sendUserMessage` triggers a normal user turn when idle and supports `deliverAs: "steer"` or `"followUp"` while streaming. The optional server-to-agent `delivery` selection defaults to `followUp`; steering uses Pi's normal semantics and is not an abort request or immediate-response guarantee. Expansion is explicitly disabled.
+- The extension API returns **void**, not an acceptance promise. Pi handles asynchronous input/provider errors; there is no application ACK. Inputs arriving during automatic retry/compaction gaps are held with their delivery selection in a bounded session-local memory queue (32 messages / 1 MiB) until Pi streams again or settles, then delivered through the selected mode. That queue is cleared on config changes/session replacement and is not an offline event buffer. Pi can still reject idle input during a manually invoked compaction. The server must not infer successful acceptance merely from a WebSocket write; no external retry queue is added.
 - Some other extensions can transform/block input or finalized messages. This extension observes messages at its handler order and does not override those extensions.
 - `ctx.ui.input` has no password option; token input uses `ctx.ui.custom` with an `Input` editor that never renders plaintext.
 - SDK hosts must emit `session_shutdown` before disposing their session if they want extension cleanup. Pi's CLI/reload/session runtime already emits it.
@@ -210,7 +210,7 @@ Inspected against installed Pi **0.87.1**, using its docs, declarations, runtime
 - `protocol.ts`: strongly typed messages, limits, and parser.
 - `translation.ts`: text/stream/tool event translation.
 - `usage-limit.ts`: explicit provider allowance exhaustion classification and safe notification.
-- `input.ts`: follow-up injection and bounded deferral across recovery gaps.
+- `input.ts`: selected-mode user-message injection and bounded deferral across recovery gaps.
 - `PROTOCOL.md`: server-side contract.
 - `dev/mock-server.ts`: local development server.
 - `tests/*.test.ts`: focused tests and real Pi SDK integration.

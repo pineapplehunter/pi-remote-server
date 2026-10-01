@@ -23,11 +23,11 @@ export type AgentMessage = z.infer<(typeof agentSchemas)[keyof typeof agentSchem
 
 const browserTarget = { version: z.literal(1), registration_id: id, session_id: id, request_id: z.string().min(1).max(128).optional() };
 const browserSchema = z.discriminatedUnion("type", [
-  z.object({ ...browserTarget, type: z.literal("message.send"), text: z.string().refine(text => text.trim().length > 0) }),
+  z.object({ ...browserTarget, type: z.literal("message.send"), text: z.string().refine(text => text.trim().length > 0), delivery: z.enum(["steer", "followUp"]).optional() }),
   z.object({ ...browserTarget, type: z.literal("session.history") }),
 ]);
 export type BrowserMessage = z.infer<typeof browserSchema>;
-export interface SendMessage { version: 1; type: "message.send"; session_id: string; text: string }
+export interface SendMessage { version: 1; type: "message.send"; session_id: string; text: string; delivery?: "steer" | "followUp" }
 
 export class ProtocolError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -64,7 +64,7 @@ export function parseBrowserMessage(raw: string | Buffer): BrowserMessage {
   const data = object(raw);
   if (data.type !== "message.send" && data.type !== "session.history") throw new ProtocolError("unsupported_type", "Unsupported browser message type.");
   const result = browserSchema.safeParse(data);
-  if (!result.success) throw new ProtocolError("invalid_message", "Expected registration_id, session_id and non-blank text.");
+  if (!result.success) throw new ProtocolError("invalid_message", "Invalid browser message fields.");
   if (result.data.type === "message.send" && Buffer.byteLength(result.data.text) > MAX_TEXT_BYTES) throw new ProtocolError("text_too_large", "Text exceeds 100 KiB UTF-8.");
   return result.data;
 }

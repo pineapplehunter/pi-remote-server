@@ -59,6 +59,8 @@ test("extension bridges live WS, follows lifecycle, rejects wrong sessions, and 
     socket.send("{"); assert.equal((await next("error") as { code: string }).code, "invalid_json");
     socket.send(JSON.stringify({ version: 1, type: "message.send", session_id: sessionId, text: "/literal-command" }));
     assert.deepEqual(await injected.next(), { text: "/literal-command", options: { deliverAs: "followUp", expandPromptTemplates: false } });
+    socket.send(JSON.stringify({ version: 1, type: "message.send", session_id: sessionId, text: "steer while idle", delivery: "steer" }));
+    assert.deepEqual(await injected.next(), { text: "steer while idle", options: { deliverAs: "steer", expandPromptTemplates: false } });
 
     idle = false; await emit("agent_start");
     assert.equal((await next("session.status") as { status: string }).status, "working");

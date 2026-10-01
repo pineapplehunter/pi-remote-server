@@ -6,8 +6,20 @@ const valid = { version: 1, type: "message.send", session_id: "pi-session", text
 function parse(patch: Record<string, unknown> = {}) { return parseServerMessage(JSON.stringify({ ...valid, ...patch }), "pi-session"); }
 function code(raw: string) { const result = parseServerMessage(raw, "pi-session"); assert.equal(result.ok, false); return !result.ok && result.error.code; }
 
-test("valid text is preserved and unknown fields ignored", () => {
+test("valid text is preserved, legacy delivery stays absent, and unknown fields are ignored", () => {
   assert.deepEqual(parse({ extra: true }), { ok: true, message: valid });
+  assert.deepEqual(parse({ delivery: "steer" }), { ok: true, message: { ...valid, delivery: "steer" } });
+  assert.deepEqual(parse({ delivery: "followUp" }), { ok: true, message: { ...valid, delivery: "followUp" } });
+});
+test("invalid delivery is rejected without echoing payload", () => {
+  for (const delivery of ["Steer", "followup", "", null, 1, {}]) {
+    const result = parse({ delivery });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "invalid_message");
+      assert.equal(JSON.stringify(result).includes(JSON.stringify(delivery)), false);
+    }
+  }
 });
 test("malformed JSON and non-objects are safe errors", () => {
   assert.equal(code("{"), "invalid_json");

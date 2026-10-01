@@ -223,3 +223,33 @@ test("composer grows/shrinks and Ctrl+Enter sends literal text without repeat/IM
     expect(document.getElementById("chat-error")!.textContent).toContain("Not connected");
   } finally { window.close(); }
 });
+
+test("composer sends the selected delivery mode and restores it with a rejected draft", async () => {
+  const { window, document, ws } = await browser();
+  try {
+    const delivery = document.querySelector<HTMLSelectElement>("#delivery")!;
+    const text = document.querySelector<HTMLTextAreaElement>("#text")!;
+    const input = (value: string) => { text.value = value; text.dispatchEvent(new window.Event("input", { bubbles: true })); };
+    const choose = (value: string) => { delivery.value = value; delivery.dispatchEvent(new window.Event("change", { bubbles: true })); };
+    const messages = () => ws.sent.filter(message => message.type === "message.send");
+    expect(delivery.value).toBe("followUp");
+    input("Follow-up input");
+    document.querySelector<HTMLFormElement>("#compose")!.requestSubmit();
+    expect(messages()[0]).toMatchObject({ text: "Follow-up input", delivery: "followUp" });
+    choose("steer");
+    expect(document.getElementById("delivery-help")!.textContent).toContain("Steer redirects");
+    input("  Change direction\nwithout trimming  ");
+    text.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(messages()[1]).toMatchObject({ text: "  Change direction\nwithout trimming  ", delivery: "steer" });
+    choose("followUp");
+    ws.receive({ type: "gateway.error", message: "Routing failed", request_id: messages()[1]!.request_id });
+    expect(text.value).toBe("  Change direction\nwithout trimming  ");
+    expect(delivery.value).toBe("steer");
+    expect(document.getElementById("delivery-help")!.textContent).toContain("Steer redirects");
+    expect(messages()).toHaveLength(2);
+    document.getElementById("detail")!.innerHTML = selectedSession(session);
+    document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
+    expect(document.querySelector<HTMLSelectElement>("#delivery")!.value).toBe("followUp");
+    expect(document.getElementById("delivery-help")!.textContent).toContain("Follow-up waits");
+  } finally { window.close(); }
+});

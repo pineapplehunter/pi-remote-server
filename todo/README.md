@@ -11,10 +11,9 @@ Completed requests:
 - [05: CDN vendor libraries](05-cdn-vendor-libraries.md)
 - [06: Tool-call visibility](06-tool-visibility.md)
 - [07: Improved composer and Ctrl+Enter](07-chat-composer.md)
-
-Current requests:
-
 - [08: Steer or follow-up delivery](08-steer-followup.md)
+
+Current requests: none.
 
 For independent test suites, use subagents concurrently with separate snapshots/workspaces. Do not share mutable workspaces or copy local credentials. Record their reports alongside combined/local browser verification.
 
