@@ -41,9 +41,13 @@ test("vendor CDN URLs are pinned and SRI matches installed assets", async () => 
   } finally { window.close(); }
 });
 
-async function browser(history = new SessionHistory()) {
+async function browser(history = new SessionHistory(), toolPreference?: string) {
   const window = new JSDOM(page([session], session, history.snapshot()), { url: "http://localhost:3000", runScripts: "outside-only" }).window;
   Object.defineProperty(window, "TextEncoder", { value: TextEncoder });
+  if (toolPreference !== undefined) window.localStorage.setItem("pi-remote.show-tools", toolPreference);
+  const style = window.document.createElement("style");
+  style.textContent = await Bun.file(new URL("../public/style.css", import.meta.url)).text();
+  window.document.head.append(style);
   let ws: MockSocket;
   class MockSocket extends window.EventTarget {
     static OPEN = 1;
@@ -143,5 +147,34 @@ test("history restores after selection/reconnect and snapshot watermark prevents
     document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
     expect(document.querySelectorAll(".message")).toHaveLength(2);
     expect(document.querySelector(".message:last-child .message-body strong")!.textContent).toBe("Authoritative");
+  } finally { window.close(); }
+});
+
+test("tool visibility applies to buffered/live calls and survives view swaps and preference reload", async () => {
+  const history = new SessionHistory();
+  history.record(agent({ type: "message.completed", role: "user", content: "Keep conversation visible" }));
+  history.record(agent({ type: "activity.started", activity: { kind: "tool", tool_call_id: "old", tool: "read", args: {} } }));
+  const { window, document, ws } = await browser(history, "false");
+  try {
+    const toggle = () => document.getElementById("toggle-tools")!;
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(window.getComputedStyle(document.querySelector(".activity")!).display).toBe("none");
+    ws.receive({ type: "activity.completed", activity: { kind: "tool", tool_call_id: "old", tool: "read", is_error: false } });
+    ws.receive({ type: "activity.started", activity: { kind: "tool", tool_call_id: "new", tool: "bash", args: {} } });
+    ws.receive({ type: "error", code: "usage_limit_reached", message: "Keep notices visible" });
+    expect(document.querySelectorAll(".activity")).toHaveLength(2);
+    expect(document.querySelector(".activity.done")).not.toBeNull();
+    expect(window.getComputedStyle(document.querySelector(".notice")!).display).not.toBe("none");
+    expect(window.getComputedStyle(document.querySelector(".message")!).display).not.toBe("none");
+    toggle().dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(window.getComputedStyle(document.querySelector(".activity")!).display).not.toBe("none");
+    toggle().dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(window.localStorage.getItem("pi-remote.show-tools")).toBe("false");
+    document.getElementById("detail")!.innerHTML = selectedSession(session, history.snapshot());
+    document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(window.getComputedStyle(document.querySelector(".activity")!).display).toBe("none");
+    expect(history.snapshot().items.filter(item => item.kind === "activity")).toHaveLength(2);
   } finally { window.close(); }
 });

@@ -14,7 +14,18 @@
   let firstHistory = true;
   const activities = new Map();
   const MAX_ITEMS = 400;
+  const TOOL_PREFERENCE = "pi-remote.show-tools";
+  let showTools = true;
+  try { showTools = localStorage.getItem(TOOL_PREFERENCE) !== "false"; } catch { /* Storage can be disabled. */ }
 
+  function applyToolVisibility() {
+    app.classList.toggle("hide-tools", !showTools);
+    const button = document.getElementById("toggle-tools");
+    if (button) {
+      button.setAttribute("aria-pressed", String(showTools));
+      button.title = showTools ? "Hide tool calls" : "Show tool calls";
+    }
+  }
   function refreshSessions() { window.htmx.trigger(document.getElementById("sessions"), "sessions-changed"); }
   function syncSend() {
     const button = document.querySelector("#compose button");
@@ -67,6 +78,7 @@
     element?.querySelectorAll(".message:not(.streaming) .message-body").forEach(body => markdown(body, body.textContent));
     available = !!selected;
     app.classList.toggle("chat-open", !!selected);
+    applyToolVisibility();
     const feed = document.querySelector(".feed");
     if (feed) feed.scrollTop = feed.scrollHeight;
     syncSend();
@@ -135,7 +147,7 @@
     const feed = document.querySelector(".feed");
     const parent = document.getElementById("messages");
     const follow = firstHistory || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 100;
-    const anchor = [...parent.children].find(item => item.offsetTop + item.offsetHeight >= feed.scrollTop);
+    const anchor = [...parent.children].find(item => (showTools || !item.classList.contains("activity")) && item.offsetTop + item.offsetHeight >= feed.scrollTop);
     const order = anchor?.dataset.order;
     const offset = anchor ? anchor.offsetTop - feed.scrollTop : 0;
     parent.replaceChildren();
@@ -241,6 +253,15 @@
   document.addEventListener("htmx:afterSwap", event => { if (event.detail.target.id === "detail") activate(); });
   document.addEventListener("htmx:responseError", () => showError("This view is no longer available. Select a live session."));
   document.addEventListener("htmx:sendError", () => showError("Cannot load sessions. Check your connection or proxy login."));
+  document.addEventListener("click", event => {
+    if (!event.target.closest?.("#toggle-tools")) return;
+    const feed = document.querySelector(".feed");
+    const follow = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 100;
+    showTools = !showTools;
+    applyToolVisibility();
+    try { localStorage.setItem(TOOL_PREFERENCE, String(showTools)); } catch { /* Retain in-memory preference. */ }
+    if (follow) feed.scrollTop = feed.scrollHeight;
+  });
   document.addEventListener("submit", event => {
     if (event.target.id !== "compose") return;
     event.preventDefault();

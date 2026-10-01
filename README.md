@@ -99,6 +99,8 @@ pi --no-extensions -e ./extensions/pi-remote/index.ts
 
 Chat, assistant drafts, tool activity and Pi notices share **one chronological stream**. Tool rows show short tool/path/command summaries; parallel calls update their own rows by `tool_call_id`. Tool results, thinking and full argument objects are not displayed. Finalized user/assistant text supports Markdown: paragraphs, headings, emphasis, lists, links, tables and fenced code. Drafts stream incrementally as plain text and become Markdown on completion. Marked output is sanitized by DOMPurify before inserting DOM fragments; images, SVG, forms, style/ID/name/class/data attributes and unsafe links are excluded. Server-rendered history/metadata and live notices/activity are escaped or use text nodes.
 
+Use **Tool calls** in the chat header to show/hide activity rows. The browser remembers this display preference across sessions/reloads using localStorage (only the boolean preference, never conversation data). Hiding tools does not stop receiving/updating/buffering them or hide chat/usage-limit notices. If storage is blocked, the toggle still works for the current page.
+
 The gateway retains a **bounded, in-memory materialized view per live registration**:
 
 - At most **400 completed chat/activity/notice entries**, with at most **512 KiB serialized entry data**. Oldest entries are evicted first.

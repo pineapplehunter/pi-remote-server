@@ -33,7 +33,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .dot.idle { background: var(--idle); }
 .conversation { height: 100%; display: flex; flex-direction: column; }
 .chat-header { display: flex; align-items: center; gap: 1rem; padding: .7rem 1rem; border-bottom: 1px solid var(--line); }
+.chat-header > div { flex: 1; min-width: 0; }
 .chat-header h2 { overflow-wrap: anywhere; }
+.tool-toggle { display: inline-flex; align-items: center; gap: .45rem; flex-shrink: 0; padding: .4rem .6rem; font-size: .8rem; background: transparent; color: var(--muted); }
+.tool-toggle[aria-pressed="true"] { background: var(--user); color: var(--text); }
+.toggle-indicator { width: .5rem; height: .5rem; border: 1px solid currentColor; border-radius: 50%; }
+.tool-toggle[aria-pressed="true"] .toggle-indicator { background: var(--idle); border-color: var(--idle); }
+#app.hide-tools .activity { display: none; }
 .chat-header p { margin: 0; }
 .back { white-space: nowrap; background: transparent; color: var(--accent); border: 0; padding: 0; }
 .feed { flex: 1; overflow: auto; padding: 1rem; min-height: 0; }

@@ -33,7 +33,8 @@ export function selectedSession(session: Session, history: HistorySnapshot = new
   return `<section class="conversation" data-registration-id="${escapeHtml(session.registration_id)}" data-session-id="${escapeHtml(session.session_id)}" data-sequence="${history.sequence}">
     <header class="chat-header"><button class="back" hx-get="/ui/empty" hx-target="#detail">‹ Sessions</button><div>
       <h2 id="session-name">${escapeHtml(session.name ?? session.session_id)}</h2>
-      <p class="hint">${escapeHtml(session.host_id)} · PID ${session.pid} · <span id="session-status">${session.status ?? "connecting"}</span></p></div></header>
+      <p class="hint">${escapeHtml(session.host_id)} · PID ${session.pid} · <span id="session-status">${session.status ?? "connecting"}</span></p></div>
+      <button id="toggle-tools" class="tool-toggle" type="button" aria-pressed="true" aria-controls="messages" title="Hide tool calls"><span class="toggle-indicator" aria-hidden="true"></span>Tool calls</button></header>
     <div class="feed"><p id="history-info" class="hint">${history.truncated ? "Recent buffered output; older entries or long text have been trimmed." : "Recent output captured while this Pi connection stays online. No earlier Pi history is loaded."}</p>
       <div id="messages" role="log" aria-label="Conversation and activity">${items.map(item => item.html).join("")}</div>
     </div>
