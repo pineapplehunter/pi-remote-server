@@ -1,3 +1,4 @@
+// Browser mock model only; all server history tests exercise the Go implementation.
 import type { AgentMessage } from "./protocol.ts";
 
 export const MAX_HISTORY_ITEMS = 400;
@@ -24,6 +25,7 @@ export function activitySummary(event: Extract<AgentMessage, { type: "activity.s
 
 /** A materialized recent view, not an event queue or a copy of Pi's session log. */
 export class SessionHistory {
+  readonly events: AgentMessage[] = [];
   private sequence = 0;
   private items: HistoryItem[] = [];
   private draft: HistorySnapshot["draft"] = null;
@@ -45,6 +47,7 @@ export class SessionHistory {
   }
   record(event: AgentMessage): number | undefined {
     if (!["message.delta", "message.completed", "activity.started", "activity.completed", "error"].includes(event.type)) return undefined;
+    this.events.push(event);
     const sequence = ++this.sequence;
     if (event.type === "message.delta") {
       this.draft = { order: this.draft?.order ?? sequence, content: this.text((this.draft?.content ?? "") + event.delta) };

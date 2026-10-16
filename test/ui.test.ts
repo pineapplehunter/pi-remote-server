@@ -1,23 +1,21 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { escapeHtml, page, selectedSession, sessionList } from "../src/views.ts";
-import { SessionHistory } from "../src/history.ts";
-import type { AgentMessage } from "../src/protocol.ts";
-import type { Session } from "../src/registry.ts";
+import { page, selectedSession } from "./fixtures/views.ts";
+import { SessionHistory } from "./fixtures/history.ts";
+import type { AgentMessage, Session } from "./fixtures/protocol.ts";
 
 const session: Session = { registration_id: "r1", session_id: "s1", host_id: "laptop", cwd: "/work", name: "Chat", pid: 123, status: "idle", connected_at: 0, last_seen: 0 };
 const malicious = '<img src=x onerror="window.hacked=true"><script>alert(1)</script>';
 const agent = (value: object) => ({ version: 1, session_id: "s1", ...value }) as AgentMessage;
 
-test("server-rendered metadata, history, drafts and activity are escaped", () => {
+test("server-rendered metadata, history, drafts and activity are escaped", async () => {
   const attack = `\"><img src=x onerror=alert(1)>&'`;
-  expect(escapeHtml(attack)).toBe("&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&amp;&#39;");
-  const bad = { ...session, name: attack, session_id: attack, host_id: attack, cwd: attack, registration_id: attack };
+  const bad = { ...session, name: attack, session_id: attack, cwd: attack };
   const history = new SessionHistory();
-  history.record(agent({ type: "message.completed", role: "user", content: attack }));
-  history.record(agent({ type: "message.delta", delta: attack }));
-  history.record(agent({ type: "activity.started", activity: { kind: "tool", tool_call_id: attack, tool: "read", args: { path: attack } } }));
-  for (const view of [page([bad], bad, history.snapshot()), sessionList([bad]), selectedSession(bad, history.snapshot())]) {
+  history.record({ ...agent({ type: "message.completed", role: "user", content: attack }), session_id: attack });
+  history.record({ ...agent({ type: "message.delta", delta: attack }), session_id: attack });
+  history.record({ ...agent({ type: "activity.started", activity: { kind: "tool", tool_call_id: attack, tool: "read", args: { path: attack } } }), session_id: attack });
+  for (const view of [await page([bad], bad, history), await selectedSession(bad, history)]) {
     const window = new JSDOM().window;
     window.document.body.innerHTML = view;
     expect(window.document.querySelector("img")).toBeNull();
@@ -27,7 +25,7 @@ test("server-rendered metadata, history, drafts and activity are escaped", () =>
 });
 
 test("vendor CDN URLs are pinned and SRI matches installed assets", async () => {
-  const window = new JSDOM(page([])).window;
+  const window = new JSDOM(await page([])).window;
   try {
     const scripts = window.document.querySelectorAll<HTMLScriptElement>('script[src^="https://cdn.jsdelivr.net/npm/"]');
     expect(scripts).toHaveLength(3);
@@ -42,7 +40,7 @@ test("vendor CDN URLs are pinned and SRI matches installed assets", async () => 
 });
 
 async function browser(history = new SessionHistory(), toolPreference?: string) {
-  const window = new JSDOM(page([session], session, history.snapshot()), { url: "http://localhost:3000", runScripts: "outside-only" }).window;
+  const window = new JSDOM(await page([session], session, history), { url: "http://localhost:3000", runScripts: "outside-only" }).window;
   Object.defineProperty(window, "TextEncoder", { value: TextEncoder });
   // jsdom/Bun has no usable Window EventTarget receiver; viewport events are
   // exercised in Chromium. Delegate registration to the fixture's document.
@@ -145,7 +143,7 @@ test("history restores after selection/reconnect and snapshot watermark prevents
     expect(document.querySelectorAll(".message")).toHaveLength(2);
     expect(document.querySelector(".message:last-child .message-body strong")!.textContent).toBe("Authoritative");
     // An HTMX detail swap initializes the server-rendered draft and requests a fresh snapshot.
-    document.getElementById("detail")!.innerHTML = selectedSession(session, history.snapshot());
+    document.getElementById("detail")!.innerHTML = await selectedSession(session, history);
     ws.holdHistory = false;
     document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
     expect(document.querySelectorAll(".message")).toHaveLength(2);
@@ -174,7 +172,7 @@ test("tool visibility applies to buffered/live calls and survives view swaps and
     expect(window.getComputedStyle(document.querySelector(".activity")!).display).not.toBe("none");
     toggle().dispatchEvent(new window.Event("click", { bubbles: true }));
     expect(window.localStorage.getItem("pi-remote.show-tools")).toBe("false");
-    document.getElementById("detail")!.innerHTML = selectedSession(session, history.snapshot());
+    document.getElementById("detail")!.innerHTML = await selectedSession(session, history);
     document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
     expect(toggle().getAttribute("aria-pressed")).toBe("false");
     expect(window.getComputedStyle(document.querySelector(".activity")!).display).toBe("none");
@@ -247,7 +245,7 @@ test("composer sends the selected delivery mode and restores it with a rejected 
     expect(delivery.value).toBe("steer");
     expect(document.getElementById("delivery-help")!.textContent).toContain("Steer redirects");
     expect(messages()).toHaveLength(2);
-    document.getElementById("detail")!.innerHTML = selectedSession(session);
+    document.getElementById("detail")!.innerHTML = await selectedSession(session);
     document.dispatchEvent(new window.CustomEvent("htmx:afterSwap", { detail: { target: document.getElementById("detail") } }));
     expect(document.querySelector<HTMLSelectElement>("#delivery")!.value).toBe("followUp");
     expect(document.getElementById("delivery-help")!.textContent).toContain("Follow-up waits");

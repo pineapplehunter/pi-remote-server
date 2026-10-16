@@ -13,13 +13,12 @@ Completed requests:
 - [07: Improved composer and Ctrl+Enter](07-chat-composer.md)
 - [08: Steer or follow-up delivery](08-steer-followup.md)
 - [09: Pueue smoke verification](09-pueue-check.md)
-
-Current requests:
-
 - [10: Go gateway rewrite](10-go-gateway.md)
 - [11: Smaller Go image and verification](11-small-go-image.md)
 
-See the [implementation plan](../docs/go-server-plan.md). These coupled migration tasks ship together so the server and Nix image stay compatible.
+Current requests: none.
+
+See the [Go implementation plan and size comparison](../docs/go-server-plan.md). The coupled Go migration tasks ship together so the server and Nix image stay compatible.
 
 For independent test suites, use subagents concurrently with separate snapshots/workspaces. Do not share mutable workspaces or copy local credentials. Record their reports alongside combined/local browser verification.
 

@@ -1,15 +1,14 @@
 # Pi remote gateway
 
-Small Bun/TypeScript gateway and Pi extension. Server-rendered HTML, plain CSS and one vanilla-JavaScript browser WebSocket. HTMX, Marked and DOMPurify load from pinned jsDelivr URLs with SHA-384 integrity checks. No frontend build, database, browser login, supervisor, remote process launching or offline input queues.
+Small Go gateway and TypeScript Pi extension. Server-rendered HTML, plain CSS and one vanilla-JavaScript browser WebSocket. HTMX, Marked and DOMPurify load from pinned jsDelivr URLs with SHA-384 integrity checks. No frontend build, database, browser login, supervisor, remote process launching or offline input queues.
 
 ## Start
 
-Use Bun (verified with **1.4.2**), or enter `nix develop` for Bun and Node.js/npm:
+Use Go **1.25+**, or enter `nix develop` for Go, Bun and Node.js/npm. Only Go is needed to build/run the server; Bun/Node are for browser tests and extension development.
 
 ```sh
-bun install --frozen-lockfile
-bun test
-bun run typecheck
+go test ./...
+go build -o .cache/pi-remote-server .
 cp -n agents.example.json agents.json
 chmod 600 agents.json
 ```
@@ -17,6 +16,7 @@ chmod 600 agents.json
 **Replace the example tokens before deployment**, using a different random token per host:
 
 ```sh
+# Bun is available in nix develop; another secure random generator also works.
 bun -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))'
 ```
 
@@ -31,14 +31,14 @@ Loopback development:
 ```sh
 export HOST=127.0.0.1 PORT=3000
 export PI_REMOTE_TOKEN_FILE="$PWD/agents.json"
-bun src/index.ts
+.cache/pi-remote-server
 ```
 
 Open `http://127.0.0.1:3000`. Install/configure the extension below; `/remote-login` uses `ws://127.0.0.1:3000/agent/ws`, host `laptop`, and its matching token. Start Pi sessions on the host, not in this UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available in the composer.
 
 Behind a TLS proxy, set `PUBLIC_ORIGIN=https://pi.s.ihavenojob.work` (your actual origin). `HOST` defaults to loopback, `PORT` to 3000. `PI_REMOTE_TOKEN_FILE` is required. `PUBLIC_ORIGIN` must be one HTTP(S) origin without path, query or credentials. Credentials are validated and loaded **once at startup**; invalid files/duplicates abort startup. Restart to rotate tokens. Keep the file readable only by its owner/administrator.
 
-The root production dependencies are Zod (gateway validation) and `ws@8.22.0` (Pi Git-package runtime). Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
+The gateway uses Go's standard library plus pinned Gorilla WebSocket (`go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.22.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
 
 ## Install the Pi package
 
@@ -129,14 +129,16 @@ A bare HTTP 429, throughput `rate_limit_exceeded`, other provider failures and s
 
 ## Docker / OCI
 
-Packaging follows [prometheus-switchbot](https://github.com/pineapplehunter/prometheus-switchbot): Nix `dockerTools.streamLayeredImage`, an executable image streamer, and GitHub Actions publishing GHCR `latest`. No Dockerfile/frontend build. The image contains Bun, CA certificates, gateway source/static assets and production dependencies from `bun.lock`, but no extension code, dev dependencies, credentials, tests or `.env`.
+Packaging follows [prometheus-switchbot](https://github.com/pineapplehunter/prometheus-switchbot): Nix `dockerTools.streamLayeredImage`, an executable image streamer, and GitHub Actions publishing GHCR `latest`. No Dockerfile/frontend build. The image contains a stripped, statically linked Go executable with embedded templates/static assets and Nix's small standard timezone/MIME/network data dependencies. No Bun/Node, npm dependencies, extension code, source tree, credentials, tests or `.env`. No CA bundle is needed: the gateway makes no outbound TLS requests; browser CDN requests happen in the browser.
 
 ```sh
 nix build .#docker
 ./result | docker load
 ```
 
-The default `nix build` does the same. Image: `pi-remote-server:latest`. Linux x86_64/aarch64 outputs are available; Darwin has a development shell, not a native image output.
+The default `nix build` does the same. Image: `pi-remote-server:latest`. Linux x86_64/aarch64 outputs are available; Darwin has a development shell and standalone server package, not a native image output.
+
+Measured linux/amd64 image layers: **121.15 MiB (Bun) → 11.81 MiB (Go)**, saving **109.35 MiB / 90.25%** uncompressed. See [build evidence and measurement method](docs/go-server-plan.md#measured-image-size).
 
 ```sh
 docker run --detach --name pi-remote --restart unless-stopped \
@@ -161,9 +163,9 @@ docker compose up -d --force-recreate
 
 Compose refuses a missing credential file and defaults to `ghcr.io/pineapplehunter/pi-remote-server:latest`. For a locally built image change it to `pi-remote-server:latest` and use `--pull never`. Unset `PUBLIC_ORIGIN` for Compose's loopback default. If the proxy runs in Docker, use a private network and `http://pi-remote:3000`, not a public host port.
 
-[CI](.github/workflows/upload-oci.yml) tests/type-checks both packages and builds the Pi extension for pull requests. Main pushes/manual main runs additionally build/load/smoke-test the image and publish `ghcr.io/<lowercase owner/repository>:latest` using `GITHUB_TOKEN` (`packages: write`). The runner publishes linux/amd64, not a multi-platform manifest. GHCR visibility may need to be made public, or private pulls need a `read:packages` login. Nothing is published until the commits are pushed and CI succeeds.
+[CI](.github/workflows/upload-oci.yml) tests/type-checks Go/browser/extension code and builds the server and Pi extension for pull requests. Main pushes/manual main runs additionally build/load/smoke-test the image and publish `ghcr.io/<lowercase owner/repository>:latest` using `GITHUB_TOKEN` (`packages: write`). The runner publishes linux/amd64, not a multi-platform manifest. GHCR visibility may need to be made public, or private pulls need a `read:packages` login. Nothing is published until the commits are pushed and CI succeeds.
 
-Production dependencies are a fixed-output Nix derivation. When changing root manifests/lock, build `nix build .#runtime-dependencies --no-link` and update `outputHash` in `flake.nix` from Nix's reported `got: sha256-...` (temporarily use `pkgs.lib.fakeHash` if needed). Installs disable lifecycle scripts; the dependency store name includes both manifest hashes to avoid stale reuse.
+Build the standalone executable with `nix build .#server --no-link`. Go dependencies are pinned by `go.mod`/`go.sum` and `vendorHash` in `flake.nix`; after dependency changes, run `go mod tidy`, temporarily set `vendorHash = pkgs.lib.fakeHash`, build `.#server` and replace it with Nix's reported `got: sha256-...`. Root npm manifests/lock affect only extension installation and browser tests, not the gateway image.
 
 ## Authentication / reverse proxy
 
@@ -171,24 +173,24 @@ Production dependencies are a fixed-output Nix derivation. When changing root ma
 
 Deploy at the domain root, with two proxy branches:
 
-1. Exact **`/agent/ws`**: bypass Authelia; preserve `Authorization: Bearer <token>`. Bun independently authenticates the host token. No redirects or token query parameters; query strings are rejected even with a valid header.
+1. Exact **`/agent/ws`**: bypass Authelia; preserve `Authorization: Bearer <token>`. The gateway independently authenticates the host token. No redirects or token query parameters; query strings are rejected even with a valid header.
 2. **Every other path**, including `/`, `/ui/*`, `/public/*`, `/favicon.svg`, `/ws`, reserved `/api/*`: require successful Authelia forward-auth **before** forwarding. Reject unauthenticated upgrades; HTTP can redirect to the login portal.
 
-Terminate TLS with a valid certificate. Use HTTP/1.1 upstream, `Upgrade`/`Connection` headers, no WebSocket response buffering, and a read timeout comfortably above Bun's 90-second idle window (e.g. 3600s). Preserve Host/Origin; never rewrite Origin to a trusted value. `/ws` requires exact `PUBLIC_ORIGIN`, or the direct request origin when unset; missing/null/foreign origins fail. Forwarded host/proto are not trusted. Pass original URL/method/cookies to Authelia using its supported proxy configuration. CDN script requests do not carry gateway credentials (`crossorigin="anonymous"`, same-origin referrer policy).
+Terminate TLS with a valid certificate. Use HTTP/1.1 upstream, `Upgrade`/`Connection` headers, no WebSocket response buffering, and a read timeout comfortably above the gateway's 90-second idle window (e.g. 3600s); the gateway pings every 30 seconds. Preserve Host/Origin; never rewrite Origin to a trusted value. `/ws` requires exact `PUBLIC_ORIGIN`, or the direct request origin when unset; missing/null/foreign origins fail. Forwarded host/proto are not trusted. Pass original URL/method/cookies to Authelia using its supported proxy configuration. CDN script requests do not carry gateway credentials (`crossorigin="anonymous"`, same-origin referrer policy).
 
-Forward-auth checks the initial upgrade, not every message; existing sockets do not continuously recheck authorization. Browser reconnects re-run forward-auth. Keep Bun accessible only to trusted local processes/proxy. Tokens/logs never include conversation text, tool args or raw headers. Avoid Authorization/payload logging in the proxy too. This remains a trusted conversation feed: only the configured extension token is specifically redacted; other arbitrary secrets are not detected.
+Forward-auth checks the initial upgrade, not every message; existing sockets do not continuously recheck authorization. Browser reconnects re-run forward-auth. Keep the gateway accessible only to trusted local processes/proxy. Tokens/logs never include conversation text, tool args or raw headers. Avoid Authorization/payload logging in the proxy too. This remains a trusted conversation feed: only the configured extension token is specifically redacted; other arbitrary secrets are not detected.
 
 ## Routing / browser protocol
 
 ```text
-Browser -- HTTP fragments + /ws --> Bun gateway <-- /agent/ws -- Pi extension
+Browser -- HTTP fragments + /ws --> Go gateway <-- /agent/ws -- Pi extension
 ```
 
-Each Pi process owns a socket. Host IDs map to socket sets. A Pi session ID can collide across processes; the gateway assigns a unique **`registration_id` UUID** and checks its exact owner plus original `session_id`. It never falls back to a different process. Disconnect removes only its registration; the host stays until its last socket closes. Metadata snapshots exclude socket/history/credentials. Status is null until reported, then `idle`/`working`; `connected_at`/`last_seen` are epoch milliseconds (application traffic, not ping/pong).
+Each Pi process owns a socket; multiple independent processes may authenticate as the same host. A Pi session ID can collide across processes; the gateway assigns a unique **`registration_id` UUID** and checks its exact owner plus original `session_id`. It never falls back to a different process. Disconnect removes only that socket's registration, leaving other processes on the same host connected. Metadata snapshots exclude socket/history/credentials. Status is null until reported, then `idle`/`working`; `connected_at`/`last_seen` are epoch milliseconds (application traffic, not ping/pong).
 
 All HTTP routes are GET-only (405 otherwise); unknown routes return 404. Static routes are explicitly whitelisted: `/public/app.js`, `/public/style.css`, `/favicon.svg`. Dynamic fragments: `/ui/sessions`, `/ui/sessions/:registrationId`, `/ui/empty`; `/` optionally accepts `?session=<UUID>`. Responses are `no-store`, no-sniff, same-origin-referrer with CSP allowing scripts only from self/jsDelivr, and blocking objects/framing/inline evaluation. HTMX evaluation, injected scripts, indicator styles and history caching are disabled.
 
-Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). Zod validates text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. The only server → Pi message is `{version:1,type:"message.send",session_id,text}` with optional `delivery: "steer" | "followUp"` (default: `followUp`).
+Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). The gateway validates and strips unknown envelope fields from JSON text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. The only server → Pi message is `{version:1,type:"message.send",session_id,text}` with optional `delivery: "steer" | "followUp"` (default: `followUp`).
 
 Browser → gateway:
 
@@ -217,11 +219,13 @@ A successful socket write is **not Pi acceptance**. User messages appear only on
 ## Verification / tasks
 
 ```sh
+go test -race ./... && go vet ./...
+bun install --frozen-lockfile
 bun test && bun run typecheck
 (cd pi-extension && npm ci --ignore-scripts && npm run typecheck && npm test)
 nix flake check --no-build --all-systems
 ```
 
-Tests cover real local Bun WebSocket routing/auth, bounds/lifecycle/history restoration, safe server/Markdown rendering, unified/parallel tool rows, snapshot overlap and pinned CDN integrity. DOM tests use **jsdom** (not Happy DOM, which is not supported for DOMPurify security testing). The real Pi SDK test discovers the **root package from settings**, runs idle/busy remote input and a real tool, then emits a synthetic provider quota failure—no provider network calls or user credentials. Mobile layout/Authelia still need validation in your environment. Nix image/extension builds can be verified here, but there is no local Docker daemon; CI runs the container smoke test and publishing.
+Go tests cover config/auth/protocol validation, bounded history and concurrent registrations. Bun drives the real Go executable for HTTP/WebSocket routing/auth, lifecycle/history restoration, server-rendered pages and jsdom UI tests (safe Markdown, unified/parallel tool rows, composer, snapshot overlap and pinned CDN integrity). Test-only TypeScript history fixtures model browser events; they are not shipped. Set `PI_REMOTE_SERVER_BINARY` to test an already-built executable instead of compiling one. DOM tests use **jsdom** (not Happy DOM, which is not supported for DOMPurify security testing). The real Pi SDK test discovers the **root package from settings**, runs idle/busy remote input and a real tool, then emits a synthetic provider quota failure—no provider network calls or user credentials. Mobile layout/Authelia still need validation in your environment. Nix image/extension builds can be verified here, but there is no local Docker daemon; CI runs the container smoke test and publishing.
 
-Requests and completion evidence live in the versioned [`todo/`](todo/README.md) task list. Gateway code is in `src/`, client JS/CSS in `public/`, extension in `pi-extension/`. Local `agents.json`, `.env`, `node_modules` and `result` stay ignored; the existing local credentials are never inspected, overwritten, served or committed.
+Requests and completion evidence live in the versioned [`todo/`](todo/README.md) task list. Gateway code is in root `*.go` files, embedded views in `templates/`, client JS/CSS in `public/`, extension in `pi-extension/`. The Go migration plan and build/size evidence are in [`docs/go-server-plan.md`](docs/go-server-plan.md). Local `agents.json`, `.env`, `node_modules` and `result` stay ignored; the existing local credentials are never inspected, overwritten, served or committed.

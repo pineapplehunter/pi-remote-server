@@ -1,6 +1,6 @@
 # Pi Remote WebSocket protocol v1 (v0.1 milestone)
 
-This is the server implementation contract. No production server is included.
+This is the gateway/extension implementation contract. The Go gateway lives in the repository root; the TypeScript Pi extension lives in `pi-extension/`.
 
 ## Transport and authentication
 

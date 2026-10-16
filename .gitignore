@@ -1,4 +1,6 @@
 /.direnv
+/.cache
+/pi-remote-server
 result*
 /node_modules
 /agents.json
