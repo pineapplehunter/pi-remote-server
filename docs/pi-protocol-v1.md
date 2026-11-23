@@ -6,7 +6,7 @@ This is the gateway/extension implementation contract. The Go gateway lives in t
 
 - One outbound connection per running Pi extension runtime.
 - Default URL: `wss://pi-agent.s.ihavenojob.work/agent/ws` (editable).
-- The agent endpoint requires mTLS. The gateway derives `host_id` from the enrolled issuing intermediate and checks server-side host revocation before upgrade.
+- Caddy requires mTLS on the agent endpoint. The Go gateway receives only the issuer name as a display label (`host_id`), not client certificates.
 - WSS is required. No bearer credentials, query parameters, or redirects are used.
 - JSON text frames only. No subprotocol is required.
 - Agent accepts incoming frames up to 1 MiB (1,048,576 bytes).

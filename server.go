@@ -11,7 +11,6 @@ import (
 
 type Gateway struct {
 	config   Config
-	trust    *agentTrust
 	registry *Registry
 }
 

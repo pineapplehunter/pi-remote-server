@@ -1,26 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { Client, clientCertHeader, harness, register } from "./helpers.ts";
+import { agentHostHeader, harness, register } from "./helpers.ts";
 
 const event = (type: string, data: object = {}) => ({ version: 1, type, session_id: "s1", ...data });
 
 describe("real Go HTTP / WebSocket gateway", () => {
-  test("agent requires an enrolled leaf on the private socket; browser Origin is required", async () => {
-    const h = await harness("https://pi.example", ["gpu01"]);
+  test("agent route is private; its host label is optional and browser Origin is required", async () => {
+    const h = await harness("https://pi.example");
     try {
-      const valid = { [clientCertHeader]: h.agentCert("laptop") };
-      expect((await fetch(`${h.base}/agent/ws`, { headers: valid })).status).toBe(404);
-      for (const headers of [undefined, { Authorization: "Bearer removed" }, ...["unknown", "gpu01"].map(host => ({ [clientCertHeader]: h.agentCert(host as "unknown" | "gpu01") }))]) {
-        expect((await h.agentHTTP("/agent/ws", headers)).status).toBe(401);
-      }
-      expect((await h.agentHTTP("/agent/ws?unexpected=1", valid)).status).toBe(400);
-      expect((await h.agentHTTP("/agent/ws", valid)).status).toBe(426);
+      expect((await fetch(`${h.base}/agent/ws`, { headers: { [agentHostHeader]: "laptop" } })).status).toBe(404);
+      expect((await h.agentHTTP("/ws")).status).toBe(404);
+      expect((await h.agentHTTP("/agent/ws?unexpected=1")).status).toBe(400);
+      expect((await h.agentHTTP("/agent/ws")).status).toBe(426);
       expect((await fetch(`${h.base}/ws`)).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://evil" } })).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://pi.example" } })).status).toBe(426);
-      const bad = new Client(h.agentURL, { [clientCertHeader]: h.agentCert("gpu01") });
-      await expect(bad.opened).rejects.toThrow();
-      await h.agent();
-      await h.browser();
+      const browser = await h.browser();
+      register(await h.agent(null));
+      expect((await browser.take("session.added")).session.host_id).toBe("Pi agent");
     } finally { h.stop(); }
   });
 
@@ -34,7 +30,7 @@ describe("real Go HTTP / WebSocket gateway", () => {
       const id = added.session.registration_id;
       expect((await h.sessions()).filter(s => s.host_id === "laptop")).toHaveLength(1);
       const list = await (await fetch(`${h.base}/ui/sessions`)).text();
-      expect(list).toContain("&lt;img"); expect(list).not.toContain("<img"); expect(list).not.toContain(h.agentCert("laptop"));
+      expect(list).toContain("&lt;img"); expect(list).not.toContain("<img");
       const detail = await (await fetch(`${h.base}/ui/sessions/${id}`)).text();
       expect(detail).toContain(`data-registration-id="${id}"`);
       expect(detail).not.toContain("<img");

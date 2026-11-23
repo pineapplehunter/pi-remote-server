@@ -4,15 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Host                                                   string
-	Port                                                   int
-	AgentSocket, RootCAFile, EnrollmentsFile, PublicOrigin string
+	Host                      string
+	Port                      int
+	AgentSocket, PublicOrigin string
 }
 
 func loadConfig(getenv func(string) (string, bool)) (Config, error) {
@@ -28,11 +27,9 @@ func loadConfig(getenv func(string) (string, bool)) (Config, error) {
 		c.Port = p
 	}
 	c.AgentSocket, _ = getenv("PI_REMOTE_AGENT_SOCKET")
-	c.RootCAFile, _ = getenv("PI_REMOTE_ROOT_CA_FILE")
-	c.EnrollmentsFile, _ = getenv("PI_REMOTE_ENROLLMENTS_FILE")
-	c.AgentSocket, c.RootCAFile, c.EnrollmentsFile = trimSpace(c.AgentSocket), trimSpace(c.RootCAFile), trimSpace(c.EnrollmentsFile)
-	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.AgentSocket == "" || c.RootCAFile == "" || c.EnrollmentsFile == "" {
-		return c, errors.New("Invalid configuration: set agent socket, root CA, enrollments, and valid HOST/PORT.")
+	c.AgentSocket = trimSpace(c.AgentSocket)
+	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.AgentSocket == "" {
+		return c, errors.New("Invalid configuration: set PI_REMOTE_AGENT_SOCKET and valid HOST/PORT.")
 	}
 	if v, ok := getenv("PUBLIC_ORIGIN"); ok {
 		u, err := url.Parse(v)
@@ -58,5 +55,3 @@ func originAllowed(r *http.Request, publicOrigin string) bool {
 	}
 	return r.Header.Get("Origin") != "" && r.Header.Get("Origin") == publicOrigin
 }
-
-var hostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)

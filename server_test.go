@@ -54,8 +54,6 @@ func TestSocketBackpressure(t *testing.T) {
 
 func TestConcurrentConnections(t *testing.T) {
 	gateway := newGateway(Config{})
-	trust, leaf, _ := agentTestTrust(t, false)
-	gateway.trust = trust
 	server := httptest.NewServer(gateway)
 	defer server.Close()
 	private := httptest.NewServer(http.HandlerFunc(gateway.agentHandler))
@@ -98,7 +96,7 @@ func TestConcurrentConnections(t *testing.T) {
 		wg.Add(1)
 		go func(pid int) {
 			defer wg.Done()
-			agent, _, err := websocket.DefaultDialer.Dial(agentURL, http.Header{agentCertificateHeader: []string{leaf}})
+			agent, _, err := websocket.DefaultDialer.Dial(agentURL, http.Header{agentHostHeader: []string{"laptop"}})
 			if err != nil {
 				t.Error(err)
 				return

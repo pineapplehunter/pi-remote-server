@@ -20,6 +20,4 @@ printf '%s\n' 'basicConstraints=critical,CA:TRUE,pathlen:0' \
   'authorityKeyIdentifier=keyid' > "$work/host.ext"
 openssl x509 -req -in "$work/host.csr" -CA root.pem -CAkey "$work/root-key.pem" \
   -days 6 -extfile "$work/host.ext" -out intermediate.pem
-awk 'BEGIN {printf "{\"hosts\":[{\"host_id\":\"dev-host\",\"intermediate\":\""} \
-  {printf "%s\\n", $0} END {print "\"}],\"revoked_hosts\":[]}"}' intermediate.pem > enrollments.json
-chmod 0644 root.pem intermediate.pem enrollments.json
+chmod 0644 root.pem intermediate.pem

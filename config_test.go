@@ -20,9 +20,9 @@ func TestConfigAndOrigin(t *testing.T) {
 		return loadConfig(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
 	}
 	if _, err := config(nil); err == nil {
-		t.Fatal("agent trust configuration must be required")
+		t.Fatal("private agent socket must be required")
 	}
-	base := map[string]string{"PI_REMOTE_AGENT_SOCKET": "/tmp/agent.sock", "PI_REMOTE_ROOT_CA_FILE": "/ca.pem", "PI_REMOTE_ENROLLMENTS_FILE": "/hosts.json"}
+	base := map[string]string{"PI_REMOTE_AGENT_SOCKET": "/tmp/agent.sock"}
 	c, err := config(base)
 	if err != nil || c.Host != "127.0.0.1" || c.Port != 3000 {
 		t.Fatal(c, err)

@@ -8,17 +8,9 @@ services:
       HOST: 0.0.0.0
       PORT: "3000"
       PI_REMOTE_AGENT_SOCKET: /run/pi-remote-agent/agent.sock
-      PI_REMOTE_ROOT_CA_FILE: /run/pi-remote/root.pem
-      PI_REMOTE_ENROLLMENTS_FILE: /run/pi-remote/enrollments.json
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:3000}
     volumes:
       - pi-remote-agent:/run/pi-remote-agent
-      - type: bind
-        source: ${PI_REMOTE_PKI_DIR:-./pki}
-        target: /run/pi-remote
-        read_only: true
-        bind:
-          create_host_path: false
 
 volumes:
   pi-remote-agent:

@@ -1,11 +1,8 @@
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
-import { testPKI } from "./fixtures/pki.ts";
-
-const pki = testPKI();
-export const clientCertHeader = "X-Pi-Remote-Client-Cert";
+export const agentHostHeader = "X-Pi-Remote-Host";
 
 mkdirSync(".cache", { recursive: true });
 const binary = process.env.PI_REMOTE_SERVER_BINARY ?? `${process.cwd()}/.cache/pi-remote-server`;
@@ -49,22 +46,15 @@ export class Client {
     });
   }
 }
-export async function harness(publicOrigin?: string, revoked_hosts: string[] = []) {
+export async function harness(publicOrigin?: string) {
   // Reserve an ephemeral port, then hand it to the real Go process.
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const base = `http://127.0.0.1:${reservation.port}`;
   reservation.stop(true);
   const dir = mkdtempSync(join(tmpdir(), "pi-go-test-"));
   const socket = join(dir, "agent.sock");
-  const root = join(dir, "root.pem");
-  const enrollments = join(dir, "enrollments.json");
-  writeFileSync(root, pki.root);
-  writeFileSync(enrollments, JSON.stringify({ hosts: ["laptop", "gpu01"].map((host_id) => ({
-    host_id, intermediate: pki.hosts[host_id as "laptop" | "gpu01"].intermediate,
-  })), revoked_hosts }));
   const env: Record<string, string | undefined> = {
     ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_AGENT_SOCKET: socket,
-    PI_REMOTE_ROOT_CA_FILE: root, PI_REMOTE_ENROLLMENTS_FILE: enrollments,
   };
   delete env.PUBLIC_ORIGIN;
   if (publicOrigin) env.PUBLIC_ORIGIN = publicOrigin;
@@ -79,10 +69,9 @@ export async function harness(publicOrigin?: string, revoked_hosts: string[] = [
   const wsBase = base.replace("http:", "ws:");
   const clients: Client[] = [];
   const agentURL = `ws+unix://${socket}:/agent/ws`;
-  const agentCert = (host: keyof typeof pki.hosts) => pki.hosts[host].leaf;
-  const agentHTTP = (path: string, headers?: HeadersInit) => fetch(`http://localhost${path}`, { unix: socket, headers });
-  async function agent(host: keyof typeof pki.hosts = "laptop") {
-    const client = new Client(agentURL, { [clientCertHeader]: agentCert(host) });
+  const agentHTTP = (path: string) => fetch(`http://localhost${path}`, { unix: socket });
+  async function agent(host: string | null = "laptop") {
+    const client = new Client(agentURL, host === null ? {} : { [agentHostHeader]: host });
     clients.push(client);
     await client.opened;
     return client;
@@ -101,7 +90,7 @@ export async function harness(publicOrigin?: string, revoked_hosts: string[] = [
     client.socket.close();
     return snapshot.sessions;
   }
-  return { base, wsBase, agent, agentURL, agentHTTP, agentCert, browser, sessions, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); void child.exited.then(() => rmSync(dir, { recursive: true, force: true })); } };
+  return { base, wsBase, agent, agentHTTP, browser, sessions, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); void child.exited.then(() => rmSync(dir, { recursive: true, force: true })); } };
 }
 export function register(agent: Client, fields: object = {}) {
   agent.send({ version: 1, type: "session.register", session_id: "s1", cwd: "/work", name: "Test session", pid: 123, ...fields });

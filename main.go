@@ -19,12 +19,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	trust, err := loadAgentTrust(config.RootCAFile, config.EnrollmentsFile)
-	if err != nil {
-		return err
-	}
 	gateway := newGateway(config)
-	gateway.trust = trust
 	listener, err := net.Listen("tcp", net.JoinHostPort(config.Host, strconv.Itoa(config.Port)))
 	if err != nil {
 		return errors.New("Cannot start gateway. Check configuration and listening address.")

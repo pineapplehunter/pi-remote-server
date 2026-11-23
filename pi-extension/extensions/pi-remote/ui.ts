@@ -52,7 +52,7 @@ export function registerRemoteCommands(pi: ExtensionAPI, controls: RemoteControl
         `Session: ${sessionId ?? "none"}`,
         `Config: ${configPath()}`,
         ...(state === "issuer_failed" ? ["Check the host pi-remote-issuer D-Bus service."] : []),
-        ...(state === "auth_failed" ? ["Check TLS trust and this host's server enrollment."] : []),
+        ...(state === "auth_failed" ? ["Check the agent hostname and whether Caddy trusts this host's certificate chain."] : []),
       ].join("\n"), "info");
     },
   });
