@@ -22,7 +22,7 @@ Open `http://127.0.0.1:3000`. It is browser-only; connecting an agent also requi
 
 `HOST` defaults to loopback, `PORT` to 3000. Set `PUBLIC_ORIGIN` to the browser URL's origin behind a TLS proxy; it must be one HTTP(S) origin without a path, query or credentials. Agent trust and revocation configuration is loaded once on startup.
 
-The gateway uses Go's standard library plus pinned Gorilla WebSocket (`go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.22.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
+The gateway uses Go's standard library plus pinned Gorilla WebSocket (`go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.23.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
 
 ## Install the Pi package
 
@@ -44,7 +44,7 @@ pi install "https://github.com/pineapplehunter/pi-remote-server@main"
 
 Restart Pi or `/reload`. The repository root's `pi.extensions` manifest points to `pi-extension/extensions/pi-remote/index.ts`; Pi installs the root runtime dependencies for Git sources. `main` is a moving branch; use a commit/tag instead for reproducibility, and `pi update` to refresh an installed Git source. The change must be pushed to GitHub before remote installs can fetch it.
 
-Requires Pi **0.87.1** or a compatible later API and Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-issue-certificate` D-Bus helper. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
+Tested with Pi **1.6.0**; requires Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-issue-certificate` D-Bus helper. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
 
 ### Nix / Home Manager
 
@@ -77,7 +77,7 @@ npm test
 pi --no-extensions -e ./extensions/pi-remote/index.ts
 ```
 
-`ws` was updated from the supplied 8.18.3 to patched **8.22.0** in both packages. `npm audit` still reports a development-only `brace-expansion` advisory in Pi's test dependency tree; those dependencies are not in the Nix extension or gateway image.
+Both npm packages pin **`ws@8.23.0`**. The Pi SDK and browser test dependencies are not bundled in the Nix extension or the gateway image.
 
 ## Conversation, Markdown and history
 

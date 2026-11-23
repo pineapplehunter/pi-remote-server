@@ -18,7 +18,7 @@ Or run `pi install "https://github.com/pineapplehunter/pi-remote-server@main"`, 
 
 ### This repository / Home Manager
 
-The gateway repository's `packages.<system>.pi-extension` output is a ready-to-load Pi package with the pinned `ws` runtime dependency included. It does **not** bundle Pi itself, install npm packages at Pi startup, or include credentials. The implementation is based on the supplied Pi package, with explicit usage-limit announcements added and `ws` upgraded to 8.22.0. The Nix output bundles only `ws`; Pi APIs are provided by Pi.
+The gateway repository's `packages.<system>.pi-extension` output is a ready-to-load Pi package with the pinned `ws` runtime dependency included. It does **not** bundle Pi itself, install npm packages at Pi startup, or include credentials. The implementation is based on the supplied Pi package, with explicit usage-limit announcements and an updated `ws` runtime. The Nix output bundles only `ws`; Pi APIs are provided by Pi.
 
 From the gateway repository root:
 
@@ -48,9 +48,9 @@ The host issuer and filtered D-Bus integration are provided by `nixos-config`, n
 
 ### Local source installation / development
 
-Requires Node >= 22.19 and Pi 0.87.1 or a compatible later API.
+Requires Node >= 22.19. The SDK integration test runs against Pi 1.6.0.
 
-**Dependency audit:** `ws` is pinned to patched 8.22.0 in both package manifests. `npm audit` still reports a high-severity development-only `brace-expansion` advisory in Pi's test dependency tree. Those development dependencies are not bundled in the Nix extension output.
+The Nix extension includes `ws@8.23.0`, but not the Pi SDK test dependencies.
 
 ```sh
 # From the gateway repository root:
@@ -127,7 +127,7 @@ nix flake check --no-build --all-systems
 
 ## Pi API details and limitations
 
-Inspected against installed Pi **0.87.1**, using its docs, declarations, runtime, and official examples. Runtime imports are the current `@earendil-works/*` names, not old aliases.
+Tested against Pi **1.6.0**. Runtime imports are the current `@earendil-works/*` names, not old aliases.
 
 - The factory only registers handlers/commands. Configuration reads and socket startup happen asynchronously from `session_start`.
 - IDs/cwd/name come from `ctx.sessionManager`; names update through `session_info_changed`.

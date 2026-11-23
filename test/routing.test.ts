@@ -162,7 +162,7 @@ describe("real Go HTTP / WebSocket gateway", () => {
       expect(response.headers.get("content-security-policy")).toContain("script-src 'self'");
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("content-security-policy")).toContain("https://cdn.jsdelivr.net");
-      expect(await response.text()).toContain("https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js");
+      expect(await response.text()).toContain("https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js");
       const js = await fetch(`${h.base}/public/app.js`);
       expect(js.status).toBe(200); expect(js.headers.get("content-type")).toContain("javascript");
       expect((await fetch(`${h.base}/public/htmx.min.js`)).status).toBe(404);

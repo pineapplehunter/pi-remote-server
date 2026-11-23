@@ -31,7 +31,9 @@ test("vendor CDN URLs are pinned and SRI matches installed assets", async () => 
     expect(scripts).toHaveLength(3);
     for (const script of scripts) {
       const match = /\/npm\/([^@]+)@([^/]+)\/(.+)$/.exec(script.src)!;
-      const asset = await Bun.file(new URL(`../node_modules/${match[1]}/${match[3]}`, import.meta.url)).arrayBuffer();
+      const installed = new URL(`../node_modules/${match[1]}/`, import.meta.url);
+      expect((await Bun.file(new URL("package.json", installed)).json()).version).toBe(match[2]);
+      const asset = await Bun.file(new URL(match[3]!, installed)).arrayBuffer();
       expect(script.getAttribute("integrity")).toBe(`sha384-${new Bun.CryptoHasher("sha384").update(asset).digest("base64")}`);
       expect(script.crossOrigin).toBe("anonymous");
       expect(script.defer).toBe(true);

@@ -18,7 +18,7 @@
         let
           server = pkgs.buildGoModule {
             pname = "pi-remote-server";
-            version = "0.1.0";
+            version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
             src = pkgs.lib.fileset.toSource {
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
