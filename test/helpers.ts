@@ -1,6 +1,11 @@
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import WebSocket from "ws";
+import { testPKI } from "./fixtures/pki.ts";
+
+const pki = testPKI();
+export const clientCertHeader = "X-Pi-Remote-Client-Cert";
 
 mkdirSync(".cache", { recursive: true });
 const binary = process.env.PI_REMOTE_SERVER_BINARY ?? `${process.cwd()}/.cache/pi-remote-server`;
@@ -17,9 +22,7 @@ export class Client {
   readonly events: Event[] = [];
   private readonly listeners = new Set<() => void>();
   constructor(url: string, headers: Record<string, string> = {}) {
-    // Bun accepts a headers options object; jsdom's DOM typings describe only browser protocols.
-    const ClientWebSocket = WebSocket as unknown as new (url: string, options: { headers: Record<string, string> }) => WebSocket;
-    this.socket = new ClientWebSocket(url, { headers });
+    this.socket = new WebSocket(url, { headers });
     this.opened = new Promise((resolve, reject) => {
       this.socket.addEventListener("open", () => resolve(), { once: true });
       this.socket.addEventListener("error", () => reject(new Error("WebSocket open failed")), { once: true });
@@ -46,15 +49,23 @@ export class Client {
     });
   }
 }
-export async function harness(publicOrigin?: string) {
+export async function harness(publicOrigin?: string, revoked_hosts: string[] = []) {
   // Reserve an ephemeral port, then hand it to the real Go process.
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const base = `http://127.0.0.1:${reservation.port}`;
   reservation.stop(true);
   const dir = mkdtempSync(join(tmpdir(), "pi-go-test-"));
-  const tokenFile = join(dir, "agents.json");
-  writeFileSync(tokenFile, JSON.stringify([{ host_id: "laptop", token: "test-secret" }, { host_id: "gpu01", token: "gpu-secret" }]), { mode: 0o600 });
-  const env: Record<string, string | undefined> = { ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_TOKEN_FILE: tokenFile };
+  const socket = join(dir, "agent.sock");
+  const root = join(dir, "root.pem");
+  const enrollments = join(dir, "enrollments.json");
+  writeFileSync(root, pki.root);
+  writeFileSync(enrollments, JSON.stringify({ hosts: ["laptop", "gpu01"].map((host_id) => ({
+    host_id, intermediate: pki.hosts[host_id as "laptop" | "gpu01"].intermediate,
+  })), revoked_hosts }));
+  const env: Record<string, string | undefined> = {
+    ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_AGENT_SOCKET: socket,
+    PI_REMOTE_ROOT_CA_FILE: root, PI_REMOTE_ENROLLMENTS_FILE: enrollments,
+  };
   delete env.PUBLIC_ORIGIN;
   if (publicOrigin) env.PUBLIC_ORIGIN = publicOrigin;
   const child = Bun.spawn([binary], { env, stdout: "ignore", stderr: "pipe" });
@@ -67,8 +78,11 @@ export async function harness(publicOrigin?: string) {
   if (!ready) { child.kill(); rmSync(dir, { recursive: true }); throw new Error(`Go gateway did not start: ${await new Response(child.stderr).text()}`); }
   const wsBase = base.replace("http:", "ws:");
   const clients: Client[] = [];
-  async function agent(token = "test-secret") {
-    const client = new Client(`${wsBase}/agent/ws`, { Authorization: `Bearer ${token}` });
+  const agentURL = `ws+unix://${socket}:/agent/ws`;
+  const agentCert = (host: keyof typeof pki.hosts) => pki.hosts[host].leaf;
+  const agentHTTP = (path: string, headers?: HeadersInit) => fetch(`http://localhost${path}`, { unix: socket, headers });
+  async function agent(host: keyof typeof pki.hosts = "laptop") {
+    const client = new Client(agentURL, { [clientCertHeader]: agentCert(host) });
     clients.push(client);
     await client.opened;
     return client;
@@ -87,8 +101,8 @@ export async function harness(publicOrigin?: string) {
     client.socket.close();
     return snapshot.sessions;
   }
-  return { base, wsBase, agent, browser, sessions, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); rmSync(dir, { recursive: true }); } };
+  return { base, wsBase, agent, agentURL, agentHTTP, agentCert, browser, sessions, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); void child.exited.then(() => rmSync(dir, { recursive: true, force: true })); } };
 }
 export function register(agent: Client, fields: object = {}) {
-  agent.send({ version: 1, type: "session.register", session_id: "s1", host_id: "laptop", cwd: "/work", name: "Test session", pid: 123, ...fields });
+  agent.send({ version: 1, type: "session.register", session_id: "s1", cwd: "/work", name: "Test session", pid: 123, ...fields });
 }

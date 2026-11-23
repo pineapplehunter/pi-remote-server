@@ -1,8 +1,10 @@
 import WebSocket from "ws";
 import type { RemoteConfig } from "./config.ts";
 import { MAX_FRAME_BYTES, type OutgoingMessage } from "./protocol.ts";
+import { processKey, requestIdentity } from "./identity.ts";
+import type { KeyObject } from "node:crypto";
 
-export type ConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "auth_failed";
+export type ConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "issuer_failed" | "auth_failed";
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000] as const;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
@@ -25,16 +27,20 @@ interface ConnectionOptions {
   /** Short delays are only useful to keep development tests fast. */
   reconnectDelays?: readonly number[];
   heartbeatMs?: number;
+  key?: KeyObject;
+  enroll?: typeof requestIdentity;
 }
 
 /** Networking owns no Pi context. All callbacks are isolated from socket failures. */
 export class RemoteConnection {
   private socket: WebSocket | undefined;
+  private enrollment: AbortController | undefined;
   private retryTimer: NodeJS.Timeout | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
   private stopped = false;
   private started = false;
   private readonly backoff: Backoff;
+  private readonly key: KeyObject;
 
   constructor(
     private readonly config: RemoteConfig,
@@ -42,6 +48,7 @@ export class RemoteConnection {
     private readonly options: ConnectionOptions = {},
   ) {
     this.backoff = new Backoff(options.reconnectDelays);
+    this.key = options.key ?? processKey();
   }
 
   start(): void {
@@ -71,6 +78,8 @@ export class RemoteConnection {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.enrollment?.abort();
+    this.enrollment = undefined;
     clearTimeout(this.retryTimer);
     clearInterval(this.heartbeat);
     this.retryTimer = undefined;
@@ -98,14 +107,30 @@ export class RemoteConnection {
     this.retryTimer.unref();
   }
 
-  private connect(): void {
+  private async connect(): Promise<void> {
     if (this.stopped) return;
     this.state("connecting");
     if (this.stopped) return;
+    const enrollment = new AbortController();
+    this.enrollment = enrollment;
+    let identity: Awaited<ReturnType<typeof requestIdentity>>;
+    try {
+      identity = await (this.options.enroll ?? requestIdentity)(this.key, enrollment.signal);
+    } catch {
+      if (this.stopped) return;
+      this.enrollment = undefined;
+      this.state("issuer_failed");
+      this.scheduleRetry();
+      return;
+    }
+    if (this.stopped || this.enrollment !== enrollment) return;
+    this.enrollment = undefined;
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.config.url, {
-        headers: { Authorization: `Bearer ${this.config.token}` },
+        key: identity.key,
+        cert: identity.cert,
+        rejectUnauthorized: true,
         handshakeTimeout: 10000,
         followRedirects: false,
         maxPayload: MAX_FRAME_BYTES,
@@ -149,7 +174,11 @@ export class RemoteConnection {
       socket.terminate();
     });
     // ws emits close after errors, including handshake timeout/failure.
-    socket.on("error", () => {});
+    socket.on("error", (error: NodeJS.ErrnoException) => {
+      if (current() && /^(ERR_(TLS|SSL)_|CERT_|DEPTH_|UNABLE_TO_|SELF_SIGNED_)/.test(error.code ?? "")) {
+        authenticationFailed = true;
+      }
+    });
     socket.on("close", () => {
       if (!current()) return;
       clearInterval(this.heartbeat);

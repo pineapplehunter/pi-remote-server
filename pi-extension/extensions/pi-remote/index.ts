@@ -4,7 +4,7 @@ import { RemoteConnection, type ConnectionState } from "./connection.ts";
 import { RemoteInput } from "./input.ts";
 import { usageLimit } from "./usage-limit.ts";
 import { parseServerMessage, VERSION, type ProtocolError, type OutgoingMessage } from "./protocol.ts";
-import { completed, textDelta, TextRedactor, toolStarted, toolCompleted } from "./translation.ts";
+import { completed, textDelta, toolStarted, toolCompleted } from "./translation.ts";
 import { registerRemoteCommands, showConnectionState } from "./ui.ts";
 
 interface ActiveSession {
@@ -18,7 +18,6 @@ interface ActiveSession {
   lifetime: AbortController;
   config?: RemoteConfig;
   connection?: RemoteConnection;
-  redactor?: TextRedactor;
   input?: RemoteInput;
 }
 
@@ -37,8 +36,7 @@ export default function remoteExtension(pi: ExtensionAPI): void {
   function registration(session: ActiveSession): void {
     if (!session.config) return;
     send({ version: VERSION, type: "session.register", session_id: session.id,
-      host_id: session.config.host_id, cwd: session.cwd,
-      name: session.name?.replaceAll(session.config.token, "[REDACTED]") ?? null, pid: process.pid });
+      cwd: session.cwd, name: session.name, pid: process.pid });
     send({ version: VERSION, type: "session.status", session_id: session.id,
       status: session.busy ? "working" : "idle" });
   }
@@ -57,7 +55,6 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     session.input?.clear();
     session.connection = undefined;
     session.config = config;
-    session.redactor = config ? new TextRedactor(config.token) : undefined;
     if (!config) { setState(session, "disabled"); return; }
     const connection = new RemoteConnection(config, {
       onOpen: () => { if (active === session) registration(session); },
@@ -107,7 +104,7 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     if (!active) return;
     active.name = event.name ?? null;
     send({ version: VERSION, type: "session.updated", session_id: active.id,
-      name: active.name && active.config ? active.name.replaceAll(active.config.token, "[REDACTED]") : active.name });
+      name: active.name });
   });
 
   pi.on("agent_start", () => {
@@ -126,33 +123,28 @@ export default function remoteExtension(pi: ExtensionAPI): void {
   });
   pi.on("message_start", (event) => {
     if (event.message.role === "assistant") {
-      active?.redactor?.reset();
       active?.input?.agentStarted();
     }
   });
   pi.on("message_update", (event) => {
-    if (!active?.redactor) return;
-    const text = textDelta(event);
-    if (text === undefined) return;
-    const delta = active.redactor.push(text);
-    if (delta) send({ version: VERSION, type: "message.delta", session_id: active.id, delta });
+    if (!active?.config) return;
+    const delta = textDelta(event);
+    if (delta !== undefined) send({ version: VERSION, type: "message.delta", session_id: active.id, delta });
   });
   pi.on("message_end", (event) => {
     if (!active?.config) return;
     if (event.message.role === "assistant") {
-      const delta = active.redactor?.finish();
-      if (delta) send({ version: VERSION, type: "message.delta", session_id: active.id, delta });
     }
-    const message = completed(event, active.id, active.config.token);
+    const message = completed(event, active.id);
     if (message) send(message);
-    const limit = usageLimit(event, active.id, active.config.token);
+    const limit = usageLimit(event, active.id);
     if (limit && !active.usageLimitAnnounced) {
       active.usageLimitAnnounced = true;
       send(limit);
     }
   });
   pi.on("tool_execution_start", (event) => {
-    if (active?.config) send(toolStarted(event, active.id, active.config.token));
+    if (active?.config) send(toolStarted(event, active.id));
   });
   pi.on("tool_execution_end", (event) => {
     if (active?.config) send(toolCompleted(event, active.id));

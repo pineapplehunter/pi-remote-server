@@ -32,7 +32,7 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
   let releaseFirst: () => void = () => {};
   const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
   try {
-    await saveConfig({ version: 1, url, host_id: "sdk-test", token: "private-bearer-token" });
+    await saveConfig({ version: 2, url });
     await loader.reload();
     assert.deepEqual(loader.getExtensions().errors, []);
     assert.equal(loader.getExtensions().extensions.length, 1);
@@ -101,14 +101,14 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
       const stream = createAssistantMessageEventStream();
       const error: AssistantMessage = { role: "assistant", content: [], api: activeModel.api, provider: activeModel.provider, model: activeModel.id,
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-        stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit. private-bearer-token", timestamp: Date.now() };
+        stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit.", timestamp: Date.now() };
       stream.push({ type: "error", reason: "error", error }); stream.end();
       return stream;
     };
     await session.prompt("Demonstrate quota reporting");
     const limit = await messages.next(message => message.type === "error" && message.code === "usage_limit_reached");
     assert.equal(limit.type, "error");
-    if (limit.type === "error") { assert.match(limit.message, /ChatGPT usage limit/); assert.ok(!limit.message.includes("private-bearer-token")); }
+    if (limit.type === "error") assert.match(limit.message, /ChatGPT usage limit/);
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     assert.equal((await next("session.unregister")).session_id, registration.session_id);
   } finally {

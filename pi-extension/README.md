@@ -44,7 +44,7 @@ remotePackage = inputs.pi-remote-server.packages.${pkgs.stdenv.hostPlatform.syst
 
 Add `"${remotePackage}"` to your existing managed Pi package list for `pi`/`pi-work`, replacing the old remote package entry. Apply your normal NixOS/Home Manager configuration, then restart Pi or run `/reload`. Use the **built package output**, not the raw `pi-extension/` source directory in the read-only Nix store: the output includes `node_modules/ws`.
 
-No NixOS module or Home Manager option is introduced by this repository. Preserve your existing settings and package-list management. Do not put `remote.json` or bearer tokens in a Nix expression.
+The host issuer and filtered D-Bus integration are provided by `nixos-config`, not by this Pi package. See the [operator runbook](../docs/agent-mtls-operations.md) to enroll the host.
 
 ### Local source installation / development
 
@@ -76,95 +76,35 @@ pi --no-extensions -e ./extensions/pi-remote/index.ts
 
 ## Configure in Pi
 
-Run **`/remote-login`**:
-
-1. Enter a WebSocket URL, or press Enter for `wss://pi.s.ihavenojob.work/agent/ws`.
-2. Enter a stable machine ID (e.g. `laptop`), or accept the suggested hostname.
-3. Paste the bearer token into the masked input. Existing credentials can keep their saved token.
-
-The address and token are not configured through environment variables. Credentials are saved atomically to **`~/.pi/agent/remote.json`**, mode **0600**, outside the repository and Nix store:
+Enroll the host per the [operator runbook](../docs/agent-mtls-operations.md), then run **`/remote-login`** and accept `wss://pi-agent.s.ihavenojob.work/agent/ws` or enter your agent endpoint. Only `wss://` and the `/agent/ws` path are accepted; don't include credentials, query parameters, or fragments. Configuration is saved atomically to **`~/.pi/agent/remote.json`**, mode 0600:
 
 ```json
-{
-  "version": 1,
-  "url": "wss://pi.s.ihavenojob.work/agent/ws",
-  "host_id": "laptop",
-  "token": "<secret>"
-}
+{"version":2,"url":"wss://pi-agent.s.ihavenojob.work/agent/ws"}
 ```
 
-If upgrading from the earlier credential location, move `~/.pi/remote.json` to `~/.pi/agent/remote.json` without overwriting an existing file, or run `/remote-login` again. The old location is no longer read.
+Run setup again to replace an earlier configuration. The file stores no private key or certificate. Each Pi process uses an in-memory key and invokes the installed `pi-remote-issue-certificate` D-Bus helper before dialing. `/remote-status` reports the URL, session, and connection state; if issuance fails, check the host D-Bus service. The footer dot is green when connected, yellow while connecting, dim when offline, and red on an issuance or authentication error.
 
-The file is plaintext JSON, not encrypted. It is intentionally shared by normal/work Pi profiles. No watcher or cross-process credential synchronization is implemented: `/remote-login` changes this Pi immediately; other running instances pick them up on reload/restart/session replacement. To disconnect, manually remove `~/.pi/agent/remote.json` and run `/reload` (or restart) in each running Pi instance. File deletion alone does not disconnect an existing socket.
+The file is shared by normal/work Pi profiles. To disconnect, remove it and reload or restart each running Pi process. File deletion alone doesn't disconnect an existing socket. Pi's own `/name` also updates the session name while connected.
 
-- `/name <name>`: use Pi's built-in command to rename the current session. Works offline; forwards `session.updated` when connected.
-- `/remote-status`: connection state, server, host ID, session ID, and credential file location—never the token.
-- Footer: one `●`, green when connected, yellow while connecting, dim while offline, red on authentication failure. Hidden when unconfigured. Use `/remote-status` for details.
-- Missing/invalid configuration: no startup prompt and no network connection. Invalid files produce one safe warning.
-- Login failures show the specific credential-free URL/host/token validation error, or a file-write error with a safe filesystem code (e.g. `EACCES`). Server authentication failures appear in the connection indicator after saving, not as configuration validation errors.
-- Login uses a custom masked TUI component, so run it in interactive Pi. Configured connections work in interactive, RPC, JSON, and print modes without stdout logging.
-- TLS required except `ws://localhost`, `ws://127.0.0.1`, or `ws://[::1]` for development. URL credentials, queries, and fragments are rejected.
-
-Treat the server as trusted: remote input becomes normal agent input and can cause Pi to run its tools with your permissions. The extension does not add approvals. Conversations/tool arguments may contain other secrets; only the configured bearer token is specifically redacted in forwarded text/arguments.
+Treat the server as trusted: remote input becomes normal agent input and can cause Pi to run its tools with your permissions. The extension does not add approvals or automatically redact arbitrary secrets in conversations and tool arguments.
 
 ## Usage-limit notifications
 
-Failed assistant `message_end` events with explicit exhausted usage/quota wording or codes emit `error` with `code: "usage_limit_reached"`. The configured token is redacted, detail is clipped to 500 characters, and repeated failures in one agent run produce only one notice. The gateway broadcasts and buffers the notice in the unified conversation stream.
+Failed assistant `message_end` events with explicit exhausted usage/quota wording or codes emit `error` with `code: "usage_limit_reached"`. Detail is clipped to 500 characters, and repeated failures in one agent run produce only one notice. The gateway broadcasts and buffers the notice in the unified conversation stream.
 
-Bare HTTP 429 / throughput rate limits, unrelated errors and successful text are not treated as exhausted usage. No account quota polling, automatic resend or predicted reset time is provided. Detection relies on provider-reported error text; unfamiliar wording may need an update. Upgrade the gateway together with this extension: older gateways reject the additional v1 error code. Other wire shapes remain unchanged.
+Bare HTTP 429 / throughput rate limits, unrelated errors and successful text are not treated as exhausted usage. No account quota polling, automatic resend or predicted reset time is provided. Detection relies on provider-reported error text; unfamiliar wording may need an update. Upgrade the gateway together with this extension: older gateways reject the additional v1 error code. The gateway now derives host identity from the authenticated connection rather than the registration payload.
 
-## Local test with mock server
+## Development TLS mock
 
-The mock is **development-only**, binds IPv4 loopback, authenticates a test token, prints event summaries (not conversation/tool payloads), and lets you send JSON from stdin.
-
-Terminal 1:
+The loopback-only mock prints event summaries, accepts an explicitly configured test client CA, and can send JSON from stdin:
 
 ```sh
-# From the gateway repository root:
-cd pi-extension
 npm ci --ignore-scripts
-npm run mock -- --port 8765 --token test
+npm run mock -- --port 8765 --key /path/to/test-server-key.pem \
+  --cert /path/to/test-server.pem --client-ca /path/to/test-root.pem
 ```
 
-Terminal 2:
-
-```sh
-# From pi-extension/:
-pi --no-extensions -e ./extensions/pi-remote/index.ts
-```
-
-Run `/remote-login` and set:
-
-```text
-URL:     ws://127.0.0.1:8765/agent/ws
-Host ID: laptop
-Token:   test
-```
-
-If keeping an existing saved token is offered, select **No** and enter `test`. This overwrites your shared development credentials; use `/remote-login` again afterward to restore the real server settings.
-
-The mock should print `session.register` and `session.status ... idle`; Pi should show a **green `●`**.
-
-Send Pi an ordinary prompt asking it to run a simple bash command and explain the output. The mock should show `session.status ... working`, `message.completed ... user`, `message.delta`, `message.completed ... assistant`, and `activity.started`/`activity.completed`, followed by `session.status ... idle` after settlement. Normal model authentication is required for this manual run.
-
-In the mock terminal, enter `/sessions`, copy the ID, then paste:
-
-```json
-{"version":1,"type":"message.send","session_id":"PASTE_SESSION_ID","text":"Say hello from the remote client"}
-```
-
-Repeat while Pi is working to verify follow-up delivery without interrupting the current run. A v1 message may optionally include `"delivery":"steer"` instead of the default `followUp` to request Pi's normal steering semantics; steering is not an abort and does not guarantee an immediate response. Both modes start normal turns when Pi is idle. During retry/compaction recovery, a bounded queue defers each message with its selected mode. Upgrade gateway and extension together: an older extension ignores `delivery` and keeps using `followUp`.
-
-Additional checks:
-
-- `/drop` in the mock: Pi reconnects and re-registers after about one second.
-- Stop/restart the mock: Pi keeps working locally and reconnects with capped backoff.
-- Send a wrong ID: mock reports `error ... wrong_session`, no input is injected.
-- Send an unsupported type or version: protocol error, Pi continues.
-- `/new`, `/resume`, `/fork`, `/reload` in Pi: old registration unregisters best effort and the active session registers again.
-- `/name New session name` in Pi: rename the session and observe `session.updated`.
-
-`/sessions` and `/drop` are mock commands only, not production protocol messages. Node's experimental type-transformation warning is expected for development scripts; Pi loads extension TypeScript through its own jiti loader.
+Use disposable certificates. The server certificate must be trusted by the test Pi's Node process and match the URL (e.g. IP SAN `127.0.0.1`). The Pi client must also have a test issuer for a client chain trusted by the mock. Automated extension tests create temporary TLS fixtures and a test issuer; they do not use deployed credentials. The mock accepts `/sessions`, `/drop`, and JSON `message.send` input.
 
 ## Automated verification
 
@@ -176,7 +116,7 @@ npm run typecheck
 npm test
 ```
 
-Tests cover JSON/schema/session/UTF-8 limits, credential permissions, redaction, masked input, activity translation, reconnect/backoff/reset, detectable auth failures, timer cleanup, lifecycle replacement, and idle/busy remote input. A real Pi SDK integration loads the extension through Pi's loader and executes a synthetic model plus the real bash tool, without provider network requests or user credentials.
+Tests cover JSON/schema/session/UTF-8 limits, config file permissions, activity translation, mTLS, reconnect/backoff/reset, authentication failures, timer cleanup, lifecycle replacement, and idle/busy remote input. A real Pi SDK integration loads the extension through Pi's loader and executes a synthetic model plus the real bash tool, without provider network requests or user credentials.
 
 Repository evaluation:
 
@@ -198,14 +138,13 @@ Inspected against installed Pi **0.87.1**, using its docs, declarations, runtime
 - `pi.sendUserMessage` triggers a normal user turn when idle and supports `deliverAs: "steer"` or `"followUp"` while streaming. The optional server-to-agent `delivery` selection defaults to `followUp`; steering uses Pi's normal semantics and is not an abort request or immediate-response guarantee. Expansion is explicitly disabled.
 - The extension API returns **void**, not an acceptance promise. Pi handles asynchronous input/provider errors; there is no application ACK. Inputs arriving during automatic retry/compaction gaps are held with their delivery selection in a bounded session-local memory queue (32 messages / 1 MiB) until Pi streams again or settles, then delivered through the selected mode. That queue is cleared on config changes/session replacement and is not an offline event buffer. Pi can still reject idle input during a manually invoked compaction. The server must not infer successful acceptance merely from a WebSocket write; no external retry queue is added.
 - Some other extensions can transform/block input or finalized messages. This extension observes messages at its handler order and does not override those extensions.
-- `ctx.ui.input` has no password option; token input uses `ctx.ui.custom` with an `Input` editor that never renders plaintext.
 - SDK hosts must emit `session_shutdown` before disposing their session if they want extension cleanup. Pi's CLI/reload/session runtime already emits it.
 
 ## Files
 
 - `extensions/pi-remote/index.ts`: Pi lifecycle and remote input wiring.
 - `config.ts`: isolated configuration access/validation.
-- `ui.ts`: commands, masked token entry, compact footer status.
+- `ui.ts`: commands, endpoint setup, compact footer status.
 - `connection.ts`: socket lifecycle, bounded live buffering, reconnects, ping/pong heartbeat.
 - `protocol.ts`: strongly typed messages, limits, and parser.
 - `translation.ts`: text/stream/tool event translation.

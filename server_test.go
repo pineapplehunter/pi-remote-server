@@ -53,13 +53,14 @@ func TestSocketBackpressure(t *testing.T) {
 }
 
 func TestConcurrentConnections(t *testing.T) {
-	auth, err := parseCredentials([]byte(`[{"host_id":"laptop","token":"test-secret"}]`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	gateway := newGateway(Config{}, auth)
+	gateway := newGateway(Config{})
+	trust, leaf, _ := agentTestTrust(t, false)
+	gateway.trust = trust
 	server := httptest.NewServer(gateway)
 	defer server.Close()
+	private := httptest.NewServer(http.HandlerFunc(gateway.agentHandler))
+	defer private.Close()
+	agentURL := "ws" + strings.TrimPrefix(private.URL, "http") + "/agent/ws"
 	defer gateway.close()
 	base := "ws" + strings.TrimPrefix(server.URL, "http")
 	browser, _, err := websocket.DefaultDialer.Dial(base+"/ws", http.Header{"Origin": []string{server.URL}})
@@ -75,6 +76,14 @@ func TestConcurrentConnections(t *testing.T) {
 	if first["type"] != "sessions.snapshot" {
 		t.Fatal(first)
 	}
+	res, err := http.Get(server.URL + "/agent/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("browser agent route: %d", res.StatusCode)
+	}
 	const count = 8
 	var wg sync.WaitGroup
 	release := make(chan struct{})
@@ -89,13 +98,13 @@ func TestConcurrentConnections(t *testing.T) {
 		wg.Add(1)
 		go func(pid int) {
 			defer wg.Done()
-			agent, _, err := websocket.DefaultDialer.Dial(base+"/agent/ws", http.Header{"Authorization": []string{"Bearer test-secret"}})
+			agent, _, err := websocket.DefaultDialer.Dial(agentURL, http.Header{agentCertificateHeader: []string{leaf}})
 			if err != nil {
 				t.Error(err)
 				return
 			}
 			defer agent.Close()
-			if err := agent.WriteMessage(websocket.TextMessage, envelope(Message{"type": "session.register", "host_id": "laptop", "cwd": "/", "name": nil, "pid": pid + 1})); err != nil {
+			if err := agent.WriteMessage(websocket.TextMessage, envelope(Message{"type": "session.register", "cwd": "/", "name": nil, "pid": pid + 1})); err != nil {
 				t.Error(err)
 				return
 			}

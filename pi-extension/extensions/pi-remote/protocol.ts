@@ -29,7 +29,7 @@ export interface SendMessage extends Envelope {
 }
 
 export type OutgoingMessage = Envelope & (
-  | { type: "session.register"; host_id: string; cwd: string; name: string | null; pid: number }
+  | { type: "session.register"; cwd: string; name: string | null; pid: number }
   | { type: "session.updated"; name: string | null }
   | { type: "session.unregister"; reason: ShutdownReason }
   | { type: "session.status"; status: AgentStatus }

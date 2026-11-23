@@ -7,17 +7,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import remoteExtension from "../extensions/pi-remote/index.ts";
 import { saveConfig } from "../extensions/pi-remote/config.ts";
 import type { OutgoingMessage } from "../extensions/pi-remote/protocol.ts";
-import { MaskedTokenInput } from "../extensions/pi-remote/ui.ts";
 import { closeServer, Inbox, localServer } from "./helpers.ts";
-
-test("masked token component never renders plaintext, including pasted text", () => {
-  let submitted: string | undefined;
-  const input = new MaskedTokenInput((value) => { submitted = value; }, () => {});
-  input.focused = true;
-  input.handleInput("\x1b[200~super-secret-token\x1b[201~");
-  for (const width of [1, 10, 80]) assert.equal(input.render(width).join("\n").includes("super-secret-token"), false);
-  input.handleInput("\r"); assert.equal(submitted, "super-secret-token");
-});
 
 test("extension bridges live WS, follows lifecycle, rejects wrong sessions, and keeps busy until settled", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-remote-extension-"));
@@ -44,12 +34,12 @@ test("extension bridges live WS, follows lifecycle, rejects wrong sessions, and 
   const emit = async (type: string, fields: Record<string, unknown> = {}) => handlers.get(type)?.({ type, ...fields }, ctx);
   const next = (type: OutgoingMessage["type"]) => messages.next((message) => message.type === type);
   try {
-    await saveConfig({ version: 1, url, host_id: "laptop", token: "private-bearer-token" });
+    await saveConfig({ version: 2, url });
     remoteExtension(pi);
     assert.equal(server.clients.size, 0, "factory must not open a socket");
     await emit("session_start", { reason: "startup" });
     const socket = await sockets.next();
-    assert.deepEqual(await next("session.register"), { version: 1, type: "session.register", session_id: sessionId, host_id: "laptop", cwd: "/session/cwd", name: "Session name", pid: process.pid });
+    assert.deepEqual(await next("session.register"), { version: 1, type: "session.register", session_id: sessionId, cwd: "/session/cwd", name: "Session name", pid: process.pid });
     assert.equal((await next("session.status") as { status: string }).status, "idle");
     assert.ok(statuses.includes("●"));
 

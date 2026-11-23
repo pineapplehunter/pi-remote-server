@@ -137,12 +137,8 @@ func (r *Registry) register(socket *Socket, m Message) {
 func (r *Registry) agentMessage(socket *Socket, raw []byte, text bool) {
 	m, err := parseMessage(raw, text, true)
 	if err == nil && m["type"] == "session.register" {
-		if m["host_id"] != socket.hostID {
-			err = protocolError("wrong_host", "Authenticated host does not match registration.")
-		} else {
-			r.register(socket, m)
-			return
-		}
+		r.register(socket, m)
+		return
 	}
 	if err == nil {
 		session := r.sessions[r.byConnection[socket]]

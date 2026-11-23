@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { harness, Client } from "./helpers.ts";
-const registration = () => ({ version: 1, type: "session.register", session_id: "s1", host_id: "laptop", cwd: "/work", name: "Test", pid: 123 });
+const registration = () => ({ version: 1, type: "session.register", session_id: "s1", cwd: "/work", name: "Test", pid: 123 });
 const event = (type: string, fields: object) => ({ version: 1, type, session_id: "s1", ...fields });
 
 test("WebSocket history restores browser gaps, isolates registrations, and resets on agent disconnect", async () => {

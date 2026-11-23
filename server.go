@@ -10,13 +10,13 @@ import (
 )
 
 type Gateway struct {
-	config      Config
-	credentials Credentials
-	registry    *Registry
+	config   Config
+	trust    *agentTrust
+	registry *Registry
 }
 
-func newGateway(config Config, credentials Credentials) *Gateway {
-	return &Gateway{config, credentials, newRegistry()}
+func newGateway(config Config) *Gateway {
+	return &Gateway{config: config, registry: newRegistry()}
 }
 
 var securityHeaders = map[string]string{
@@ -37,17 +37,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	if path == "/agent/ws" {
-		host := ""
-		if r.URL.RawQuery == "" && !r.URL.ForceQuery {
-			host = g.credentials.authenticate(r.Header.Get("Authorization"))
-		}
-		if host == "" {
-			logEvent("agent.authentication_rejected", nil)
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(w, "Unauthorized", 401)
-			return
-		}
-		g.websocket(w, r, host)
+		http.NotFound(w, r)
 		return
 	}
 	if path == "/ws" {

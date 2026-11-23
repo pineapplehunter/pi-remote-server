@@ -1,21 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { Client, harness, register } from "./helpers.ts";
+import { Client, clientCertHeader, harness, register } from "./helpers.ts";
 
 const event = (type: string, data: object = {}) => ({ version: 1, type, session_id: "s1", ...data });
 
 describe("real Go HTTP / WebSocket gateway", () => {
-  test("agent upgrade requires bearer header; browser Origin is required", async () => {
-    const h = await harness("https://pi.example");
+  test("agent requires an enrolled leaf on the private socket; browser Origin is required", async () => {
+    const h = await harness("https://pi.example", ["gpu01"]);
     try {
-      for (const headers of [new Headers(), new Headers({ Authorization: "Bearer wrong" })]) {
-        expect((await fetch(`${h.base}/agent/ws`, { headers })).status).toBe(401);
+      const valid = { [clientCertHeader]: h.agentCert("laptop") };
+      expect((await fetch(`${h.base}/agent/ws`, { headers: valid })).status).toBe(404);
+      for (const headers of [undefined, { Authorization: "Bearer removed" }, ...["unknown", "gpu01"].map(host => ({ [clientCertHeader]: h.agentCert(host as "unknown" | "gpu01") }))]) {
+        expect((await h.agentHTTP("/agent/ws", headers)).status).toBe(401);
       }
-      expect((await fetch(`${h.base}/agent/ws?token=test-secret`, { headers: { Authorization: "Bearer test-secret" } })).status).toBe(401);
-      expect((await fetch(`${h.base}/agent/ws`, { headers: { Authorization: "Bearer test-secret" } })).status).toBe(426);
+      expect((await h.agentHTTP("/agent/ws?unexpected=1", valid)).status).toBe(400);
+      expect((await h.agentHTTP("/agent/ws", valid)).status).toBe(426);
       expect((await fetch(`${h.base}/ws`)).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://evil" } })).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://pi.example" } })).status).toBe(426);
-      const bad = new Client(`${h.wsBase}/agent/ws`, { Authorization: "Bearer wrong" });
+      const bad = new Client(h.agentURL, { [clientCertHeader]: h.agentCert("gpu01") });
       await expect(bad.opened).rejects.toThrow();
       await h.agent();
       await h.browser();
@@ -32,7 +34,7 @@ describe("real Go HTTP / WebSocket gateway", () => {
       const id = added.session.registration_id;
       expect((await h.sessions()).filter(s => s.host_id === "laptop")).toHaveLength(1);
       const list = await (await fetch(`${h.base}/ui/sessions`)).text();
-      expect(list).toContain("&lt;img"); expect(list).not.toContain("<img"); expect(list).not.toContain("test-secret");
+      expect(list).toContain("&lt;img"); expect(list).not.toContain("<img"); expect(list).not.toContain(h.agentCert("laptop"));
       const detail = await (await fetch(`${h.base}/ui/sessions/${id}`)).text();
       expect(detail).toContain(`data-registration-id="${id}"`);
       expect(detail).not.toContain("<img");
@@ -56,10 +58,13 @@ describe("real Go HTTP / WebSocket gateway", () => {
   test("routes exact message.send to intended live process despite identical Pi IDs", async () => {
     const h = await harness();
     try {
-      const a1 = await h.agent(); const a2 = await h.agent(); const a3 = await h.agent("gpu-secret"); const b = await h.browser();
+      const a1 = await h.agent(); const a2 = await h.agent(); const a3 = await h.agent("gpu01"); const b = await h.browser();
       register(a1); const r1 = (await b.take("session.added")).session.registration_id;
       register(a2, { pid: 456 }); const r2 = (await b.take("session.added")).session.registration_id;
-      register(a3, { host_id: "gpu01" }); const r3 = (await b.take("session.added")).session.registration_id;
+      register(a3, { host_id: "laptop" });
+      const third = (await b.take("session.added")).session;
+      expect(third.host_id).toBe("gpu01");
+      const r3 = third.registration_id;
       expect(new Set([r1, r2, r3]).size).toBe(3);
       expect((await h.sessions()).filter(s => s.host_id === "laptop")).toHaveLength(2);
       b.send({ version: 1, type: "message.send", registration_id: r2, session_id: "s1", text: "  hello\n", request_id: "request1" });
@@ -114,13 +119,10 @@ describe("real Go HTTP / WebSocket gateway", () => {
     } finally { h.stop(); }
   });
 
-  test("host mismatch, wrong ownership and malformed agent messages are rejected", async () => {
+  test("wrong ownership and malformed agent messages are rejected", async () => {
     const h = await harness();
     try {
       const b = await h.browser();
-      const wrongHost = await h.agent(); register(wrongHost, { host_id: "gpu01" });
-      await wrongHost.closed;
-      expect(await h.sessions()).toHaveLength(0);
       const a = await h.agent(); register(a);
       const id = (await b.take("session.added")).session.registration_id;
       const intruder = await h.agent();

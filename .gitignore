@@ -4,4 +4,5 @@
 result*
 /node_modules
 /agents.json
+/pki/
 .env

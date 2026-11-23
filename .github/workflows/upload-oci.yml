@@ -65,13 +65,19 @@ jobs:
 
       - name: Smoke-test container
         run: |
-          credentials_dir=$(mktemp -d)
-          trap 'docker rm -f pi-remote-smoke >/dev/null 2>&1 || true; rm -rf "$credentials_dir"' EXIT
-          printf '%s\n' '[{"host_id":"ci","token":"ci-smoke-token"}]' > "$credentials_dir/agents.json"
+          scratch=$(mktemp -d)
+          trap 'docker rm -f pi-remote-smoke >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
+          bash scripts/dev-pki.sh "$scratch/pki"
+          rm "$scratch/pki/intermediate-key.pem"
+          mkdir "$scratch/socket"
           docker run --detach --name pi-remote-smoke \
+            --user "$(id -u):$(id -g)" \
             --publish 127.0.0.1::3000 \
-            --env PI_REMOTE_TOKEN_FILE=/run/pi-remote/agents.json \
-            --mount "type=bind,src=$credentials_dir/agents.json,dst=/run/pi-remote/agents.json,readonly" \
+            --env PI_REMOTE_AGENT_SOCKET=/run/pi-remote-agent/agent.sock \
+            --env PI_REMOTE_ROOT_CA_FILE=/run/pi-remote/root.pem \
+            --env PI_REMOTE_ENROLLMENTS_FILE=/run/pi-remote/enrollments.json \
+            --mount "type=bind,src=$scratch/pki,dst=/run/pi-remote,readonly" \
+            --mount "type=bind,src=$scratch/socket,dst=/run/pi-remote-agent" \
             pi-remote-server:latest
           url="http://$(docker port pi-remote-smoke 3000/tcp)"
           for _ in {1..30}; do
@@ -82,7 +88,8 @@ jobs:
           curl --fail --silent --show-error "$url/" | grep -q 'Pi remote'
           curl --fail --silent --show-error "$url/favicon.svg" | grep -q '<svg'
           curl --fail --silent --show-error "$url/public/app.js" > /dev/null
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$url/agent/ws")" = 401
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$url/agent/ws")" = 404
+          test "$(curl --silent --unix-socket "$scratch/socket/agent.sock" --output /dev/null --write-out '%{http_code}' http://localhost/agent/ws)" = 401
           # Catch accidental runtime/dependency closure growth (uncompressed layers).
           size=$(docker image inspect pi-remote-server:latest --format '{{.Size}}')
           echo "Image size: $size bytes"

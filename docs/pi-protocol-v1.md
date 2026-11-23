@@ -5,10 +5,9 @@ This is the gateway/extension implementation contract. The Go gateway lives in t
 ## Transport and authentication
 
 - One outbound connection per running Pi extension runtime.
-- Default URL: `wss://pi.s.ihavenojob.work/agent/ws` (editable).
-- Authentication is the HTTP upgrade header `Authorization: Bearer <token>`.
-- Never use token query parameters or credential-bearing redirects.
-- TLS is required except for `ws://` loopback development.
+- Default URL: `wss://pi-agent.s.ihavenojob.work/agent/ws` (editable).
+- The agent endpoint requires mTLS. The gateway derives `host_id` from the enrolled issuing intermediate and checks server-side host revocation before upgrade.
+- WSS is required. No bearer credentials, query parameters, or redirects are used.
 - JSON text frames only. No subprotocol is required.
 - Agent accepts incoming frames up to 1 MiB (1,048,576 bytes).
 - Incoming `text` is limited to 100 KiB (102,400 bytes), measured as decoded UTF-8.
@@ -23,7 +22,7 @@ Treat IDs as opaque strings. Error envelopes use the **current** session ID.
 The examples below show the complete shapes. `s1` is only an example ID.
 
 ```json
-{"version":1,"type":"session.register","session_id":"s1","host_id":"laptop","cwd":"/work/project","name":null,"pid":12345}
+{"version":1,"type":"session.register","session_id":"s1","cwd":"/work/project","name":null,"pid":12345}
 {"version":1,"type":"session.updated","session_id":"s1","name":"Debug tests"}
 {"version":1,"type":"session.unregister","session_id":"s1","reason":"quit"}
 {"version":1,"type":"session.status","session_id":"s1","status":"working"}
@@ -59,12 +58,12 @@ The examples below show the complete shapes. `s1` is only an example ID.
 - Disconnects may lose events or part of a streamed draft. Final completions received after reconnect remain authoritative. Registration starts a fresh transient draft/activity view.
 - Tool calls may execute in parallel: correlate activity by `tool_call_id`, not event adjacency.
 - Tool results and tool updates are never forwarded.
-- Tool arguments larger than 16 KiB, unserializable arguments, or arguments containing the configured bearer token are replaced with `args: {}` and `args_omitted: true` inside `activity`.
-- Messages/stream text containing the configured bearer token are redacted; secrets other than this token are not automatically detected. This is a trusted remote conversation feed.
+- Tool arguments larger than 16 KiB or that cannot be serialized are replaced with `args: {}` and `args_omitted: true` inside `activity`.
+- Arbitrary secrets are not automatically detected. This is a trusted remote conversation feed.
 
 ### Usage-limit errors
 
-Failed assistant `message_end` events whose provider error text explicitly reports exhausted usage/quota emit `error` with `code: "usage_limit_reached"`. Examples include ChatGPT usage-limit wording, `usage_limit_reached` and `insufficient_quota`. A bare 429 or throughput rate limit does not imply exhausted allowance. Detection is text-based, not account telemetry; unfamiliar provider wording may not be recognized. The configured bearer token is redacted and the detail is bounded to 500 characters. One notice per agent run, including automatic retries. No new server → agent frame is introduced.
+Failed assistant `message_end` events whose provider error text explicitly reports exhausted usage/quota emit `error` with `code: "usage_limit_reached"`. Examples include ChatGPT usage-limit wording, `usage_limit_reached` and `insufficient_quota`. A bare 429 or throughput rate limit does not imply exhausted allowance. Detection is text-based, not account telemetry; unfamiliar provider wording may not be recognized. The detail is bounded to 500 characters. One notice per agent run, including automatic retries. No new server → agent frame is introduced.
 
 Servers must accept the additional v1 error code; upgrade extension and gateway together. It is a provider notification, not a validation response or acceptance acknowledgment.
 

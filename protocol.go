@@ -66,10 +66,10 @@ func parseMessage(raw []byte, textFrame, agent bool) (Message, *ProtocolError) {
 	if agent {
 		switch typ {
 		case "session.register":
-			fields = append(fields, "host_id", "cwd", "name", "pid")
+			fields = append(fields, "cwd", "name", "pid")
 			pid, ok := data["pid"].(float64)
 			name, exists := data["name"]
-			valid = valid && nonempty(data, "host_id") && isString(data, "cwd") && exists && (name == nil || isString(data, "name")) && ok && pid > 0 && pid <= 1<<53-1 && math.Trunc(pid) == pid
+			valid = valid && isString(data, "cwd") && exists && (name == nil || isString(data, "name")) && ok && pid > 0 && pid <= 1<<53-1 && math.Trunc(pid) == pid
 		case "session.updated":
 			fields = append(fields, "name")
 			name, exists := data["name"]

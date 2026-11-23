@@ -3,33 +3,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { MAX_TOOL_ARGS_BYTES, VERSION, type JsonValue, type OutgoingMessage } from "./protocol.ts";
 
-/** Hold only a possible token prefix, so a secret split across stream deltas cannot leak. */
-export class TextRedactor {
-  private pending = "";
-  constructor(private readonly token: string) {}
-  push(delta: string): string {
-    const text = (this.pending + delta).replaceAll(this.token, "[REDACTED]");
-    let held = Math.min(this.token.length - 1, text.length);
-    while (held > 0 && !text.endsWith(this.token.slice(0, held))) held--;
-    this.pending = held ? text.slice(-held) : "";
-    return held ? text.slice(0, -held) : text;
-  }
-  finish(): string {
-    const text = this.pending;
-    this.pending = "";
-    return text;
-  }
-  reset(): void { this.pending = ""; }
-}
-
-export function completed(event: MessageEndEvent, sessionId: string, token: string): OutgoingMessage | undefined {
+export function completed(event: MessageEndEvent, sessionId: string): OutgoingMessage | undefined {
   const { message } = event;
   if (message.role !== "user" && message.role !== "assistant") return undefined;
   const text = typeof message.content === "string"
     ? message.content
     : message.content.filter((part) => part.type === "text").map((part) => part.text).join("");
   return { version: VERSION, type: "message.completed", session_id: sessionId,
-    role: message.role, content: text.replaceAll(token, "[REDACTED]") };
+    role: message.role, content: text };
 }
 
 export function textDelta(event: MessageUpdateEvent): string | undefined {
@@ -37,12 +18,12 @@ export function textDelta(event: MessageUpdateEvent): string | undefined {
   return event.assistantMessageEvent.delta;
 }
 
-export function toolStarted(event: ToolExecutionStartEvent, sessionId: string, token: string): OutgoingMessage {
+export function toolStarted(event: ToolExecutionStartEvent, sessionId: string): OutgoingMessage {
   let args: JsonValue = {};
   let omitted = false;
   try {
     const serialized = JSON.stringify(event.args);
-    if (!serialized || Buffer.byteLength(serialized, "utf8") > MAX_TOOL_ARGS_BYTES || serialized.includes(token)) omitted = true;
+    if (!serialized || Buffer.byteLength(serialized, "utf8") > MAX_TOOL_ARGS_BYTES) omitted = true;
     else args = JSON.parse(serialized) as JsonValue;
   } catch { omitted = true; }
   return {

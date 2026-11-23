@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { once } from "node:events";
+import type { TLSSocket } from "node:tls";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { Backoff, RemoteConnection, type ConnectionState } from "../extensions/pi-remote/connection.ts";
-import { closeServer, Inbox, localServer } from "./helpers.ts";
+import { closeServer, Inbox, localServer, clientIdentity, testHttps } from "./helpers.ts";
 
 test("backoff follows 1/2/5/10/30 seconds and resets", () => {
   const backoff = new Backoff();
@@ -12,20 +12,23 @@ test("backoff follows 1/2/5/10/30 seconds and resets", () => {
   backoff.reset(); assert.equal(backoff.next(), 1000);
 });
 
-test("auth header, reconnect, binary handling, and stop cleanup", async () => {
+test("mTLS, reconnect, binary handling, and stop cleanup", async () => {
   const { server, url, sockets } = await localServer();
   const states = new Inbox<ConnectionState>();
   const input = new Inbox<string>();
   let opens = 0;
   let binaries = 0;
+  const leaves: { serial: string; key: string }[] = [];
   server.on("connection", (_socket, request) => {
-    assert.equal(request.headers.authorization, "Bearer test");
+    const cert = (request.socket as TLSSocket).getPeerX509Certificate()!;
+    leaves.push({ serial: cert.serialNumber, key: cert.publicKey.export({ type: "spki", format: "pem" }).toString() });
+    assert.equal(request.headers.authorization, undefined);
     assert.equal(request.url, "/agent/ws");
   });
-  const connection = new RemoteConnection({ version: 1, url, host_id: "laptop", token: "test" }, {
+  const connection = new RemoteConnection({ version: 2, url }, {
     onOpen: () => { opens++; }, onMessage: (raw) => input.push(raw),
     onBinary: () => { binaries++; }, onState: (state) => states.push(state),
-  }, { reconnectDelays: [20, 30], heartbeatMs: 100 });
+  }, { reconnectDelays: [20, 30], heartbeatMs: 100, enroll: async () => clientIdentity() });
   try {
     assert.equal(connection.send({ version: 1, type: "session.status", session_id: "id", status: "idle" }), false);
     connection.start(); connection.start();
@@ -36,13 +39,15 @@ test("auth header, reconnect, binary handling, and stop cleanup", async () => {
     first.terminate(); await states.next((state) => state === "disconnected");
     await sockets.next(); await states.next((state) => state === "connected");
     assert.equal(opens, 2);
+    assert.notEqual(leaves[0]!.serial, leaves[1]!.serial);
+    assert.equal(leaves[0]!.key, leaves[1]!.key);
     connection.stop(); connection.stop(); connection.start();
     await delay(80); assert.equal(opens, 2);
   } finally { connection.stop(); await closeServer(server); }
 });
 
 test("HTTP authentication failure is detectable and retry timer is cancelled", async () => {
-  const server = createServer();
+  const server = testHttps();
   let upgrades = 0;
   server.on("upgrade", (_request, socket) => {
     upgrades++; socket.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -50,9 +55,9 @@ test("HTTP authentication failure is detectable and retry timer is cancelled", a
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const states = new Inbox<ConnectionState>();
-  const connection = new RemoteConnection({ version: 1, url: `ws://127.0.0.1:${address.port}`, host_id: "laptop", token: "test" }, {
+  const connection = new RemoteConnection({ version: 2, url: `wss://127.0.0.1:${address.port}` }, {
     onOpen() {}, onMessage() {}, onBinary() {}, onState: (state) => states.push(state),
-  }, { reconnectDelays: [50] });
+  }, { reconnectDelays: [50], enroll: async () => clientIdentity() });
   try {
     connection.start(); await states.next((state) => state === "auth_failed");
     connection.stop(); await delay(100); assert.equal(upgrades, 1);
@@ -61,10 +66,10 @@ test("HTTP authentication failure is detectable and retry timer is cancelled", a
 
 test("callback failures cannot escape a network event", async () => {
   const { server, url, sockets } = await localServer();
-  const connection = new RemoteConnection({ version: 1, url, host_id: "laptop", token: "test" }, {
+  const connection = new RemoteConnection({ version: 2, url }, {
     onOpen() { throw new Error("callback"); }, onMessage() { throw new Error("callback"); },
     onBinary() { throw new Error("callback"); }, onState() { throw new Error("callback"); },
-  });
+  }, { enroll: async () => clientIdentity() });
   try { connection.start(); const socket = await sockets.next(); socket.send("payload"); await delay(20); }
   finally { connection.stop(); await closeServer(server); }
 });

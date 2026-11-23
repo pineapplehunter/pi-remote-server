@@ -6,14 +6,12 @@ import { test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerRemoteCommands, showConnectionState } from "../extensions/pi-remote/ui.ts";
 
-async function login(url: string, host: string, token: string, configure: () => void = () => assert.fail("Invalid input should not configure")): Promise<string[]> {
+async function login(url: string, configure: () => void = () => assert.fail("Invalid input should not configure")): Promise<string[]> {
   const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
   const notices: string[] = [];
-  const answers = [url, host];
   const ctx = {
     mode: "tui", hasUI: true,
-    ui: { input: async () => answers.shift(), custom: async () => token,
-      notify: (message: string) => notices.push(message) },
+    ui: { input: async () => url, notify: (message: string) => notices.push(message) },
   } as unknown as ExtensionCommandContext;
   registerRemoteCommands({ registerCommand: (name, command) => { commands.set(name, command); } } as ExtensionAPI, {
     snapshot: () => ({ state: "disabled", signal: new AbortController().signal }), configure,
@@ -25,13 +23,12 @@ async function login(url: string, host: string, token: string, configure: () => 
 test("login identifies the rejected field without echoing credentials or invalid input", async () => {
   const secret = "secret-not-to-print";
   const cases = [
-    ["http://127.0.0.1:3000/agent/ws", "kpro-takata", secret, "HTTP(S) URLs are not WebSocket URLs"],
-    ["pi.s.ihavenojob.work", "kpro-takata", secret, "Enter a full ws:// or wss:// URL"],
-    ["ws://127.0.0.1:3000/agent/ws", "invalid host", secret, "Host ID must use"],
-    ["ws://127.0.0.1:3000/agent/ws", "kpro-takata", `Bearer ${secret}`, "Paste only the token"],
-  ];
-  for (const [url, host, token, expected] of cases) {
-    const notices = await login(url!, host!, token!);
+    ["http://127.0.0.1:3000/agent/ws", "Use a wss:// server URL"],
+    ["pi-agent.s.ihavenojob.work", "Enter a full wss:// URL"],
+    [`wss://user:${secret}@example.test/agent/ws`, "must not contain credentials"],
+  ] as const;
+  for (const [url, expected] of cases) {
+    const notices = await login(url);
     assert.equal(notices.length, 1);
     assert.ok(notices[0]!.includes(expected!));
     assert.equal(notices[0]!.includes(secret), false);
@@ -65,8 +62,7 @@ test("unexpected connection errors stay generic and cannot expose credentials", 
   process.env.HOME = root;
   const secret = "secret-not-to-print";
   try {
-    const notices = await login("ws://127.0.0.1:3000/agent/ws", "kpro-takata", secret,
-      () => { throw new Error(`Authorization: Bearer ${secret}`); });
+    const notices = await login("wss://127.0.0.1:3000/agent/ws", () => { throw new Error(secret); });
     assert.equal(notices[0], "Could not configure the remote connection. No credential details were logged.");
     assert.equal(JSON.stringify(notices).includes(secret), false);
   } finally {

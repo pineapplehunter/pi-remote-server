@@ -1,21 +1,18 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Host                    string
-	Port                    int
-	TokenFile, PublicOrigin string
+	Host                                                   string
+	Port                                                   int
+	AgentSocket, RootCAFile, EnrollmentsFile, PublicOrigin string
 }
 
 func loadConfig(getenv func(string) (string, bool)) (Config, error) {
@@ -30,10 +27,12 @@ func loadConfig(getenv func(string) (string, bool)) (Config, error) {
 		}
 		c.Port = p
 	}
-	c.TokenFile, _ = getenv("PI_REMOTE_TOKEN_FILE")
-	c.TokenFile = trimSpace(c.TokenFile)
-	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.TokenFile == "" {
-		return c, errors.New("Invalid configuration: set PI_REMOTE_TOKEN_FILE and valid HOST/PORT.")
+	c.AgentSocket, _ = getenv("PI_REMOTE_AGENT_SOCKET")
+	c.RootCAFile, _ = getenv("PI_REMOTE_ROOT_CA_FILE")
+	c.EnrollmentsFile, _ = getenv("PI_REMOTE_ENROLLMENTS_FILE")
+	c.AgentSocket, c.RootCAFile, c.EnrollmentsFile = trimSpace(c.AgentSocket), trimSpace(c.RootCAFile), trimSpace(c.EnrollmentsFile)
+	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.AgentSocket == "" || c.RootCAFile == "" || c.EnrollmentsFile == "" {
+		return c, errors.New("Invalid configuration: set agent socket, root CA, enrollments, and valid HOST/PORT.")
 	}
 	if v, ok := getenv("PUBLIC_ORIGIN"); ok {
 		u, err := url.Parse(v)
@@ -60,48 +59,4 @@ func originAllowed(r *http.Request, publicOrigin string) bool {
 	return r.Header.Get("Origin") != "" && r.Header.Get("Origin") == publicOrigin
 }
 
-type Credentials map[[32]byte]string
-
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-var bearerPattern = regexp.MustCompile(`(?i)^Bearer ([\x21-\x7e]+)$`)
-
-func parseCredentials(data []byte) (Credentials, error) {
-	var entries []map[string]json.RawMessage
-	if json.Unmarshal(data, &entries) != nil || len(entries) == 0 {
-		return nil, errors.New("Invalid credential file entries.")
-	}
-	credentials := Credentials{}
-	hosts := map[string]bool{}
-	for _, entry := range entries {
-		var host, token string
-		if len(entry) != 2 || json.Unmarshal(entry["host_id"], &host) != nil || json.Unmarshal(entry["token"], &token) != nil || !hostPattern.MatchString(host) || len(token) < 1 || len(token) > 8192 {
-			return nil, errors.New("Invalid credential file entries.")
-		}
-		for _, b := range []byte(token) {
-			if b < 0x21 || b > 0x7e {
-				return nil, errors.New("Invalid credential file entries.")
-			}
-		}
-		digest := sha256.Sum256([]byte(token))
-		if hosts[host] || credentials[digest] != "" {
-			return nil, errors.New("Duplicate host ID or token in credential file.")
-		}
-		hosts[host] = true
-		credentials[digest] = host
-	}
-	return credentials, nil
-}
-func loadCredentials(path string) (Credentials, error) {
-	data, err := os.ReadFile(path)
-	if err != nil || !json.Valid(data) {
-		return nil, errors.New("Cannot read or parse credential file.")
-	}
-	return parseCredentials(data)
-}
-func (c Credentials) authenticate(header string) string {
-	match := bearerPattern.FindStringSubmatch(header)
-	if match == nil || len(match[1]) > 8192 {
-		return ""
-	}
-	return c[sha256.Sum256([]byte(match[1]))]
-}

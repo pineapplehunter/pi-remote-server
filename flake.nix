@@ -88,6 +88,7 @@
               pkgs.go
               pkgs.bun
               pkgs.nodejs
+              pkgs.openssl
             ];
           };
 

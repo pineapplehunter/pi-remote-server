@@ -1,22 +1,29 @@
 // Development only: loopback server, no persistence, no production authentication service.
-import { createServer } from "node:http";
+import { createServer } from "node:https";
+import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
 import { MAX_FRAME_BYTES } from "../extensions/pi-remote/protocol.ts";
 
-const { values } = parseArgs({ options: { port: { type: "string", default: "8765" }, token: { type: "string", default: "test" } } });
+const { values } = parseArgs({ options: {
+  port: { type: "string", default: "8765" },
+  cert: { type: "string" }, key: { type: "string" }, "client-ca": { type: "string" },
+} });
 const port = Number(values.port);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid port");
-const token = values.token!;
-const server = createServer((_request, response) => { response.writeHead(404); response.end(); });
+if (!values.key || !values.cert || !values["client-ca"]) throw new Error("Set --key, --cert and --client-ca for the loopback TLS mock");
+const server = createServer({
+  key: readFileSync(values.key), cert: readFileSync(values.cert), ca: readFileSync(values["client-ca"]),
+  requestCert: true, rejectUnauthorized: true,
+}, (_request, response) => { response.writeHead(404); response.end(); });
 const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, perMessageDeflate: false });
 const sessions = new Map<string, WebSocket>();
 const input = createInterface({ input: process.stdin });
 
 server.on("upgrade", (request, socket, head) => {
-  if (request.headers.authorization !== `Bearer ${token}`) {
-    socket.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+  if (request.url !== "/agent/ws") {
+    socket.end("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     return;
   }
   wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
@@ -33,7 +40,7 @@ wss.on("connection", (ws) => {
     const summary = [message.type, message.session_id, message.status, message.role, activity?.tool, message.code]
       .filter((part) => typeof part === "string").join(" ");
     // Event types/IDs only: never print auth, conversation content, or tool arguments/results.
-    console.log(`[mock] ${summary.replaceAll(token, "[REDACTED]")}`);
+    console.log(`[mock] ${summary}`);
     if (message.type === "session.unregister" && typeof message.session_id === "string" && sessions.get(message.session_id) === ws) sessions.delete(message.session_id);
   });
   ws.on("close", () => {
@@ -57,7 +64,7 @@ input.on("line", (line) => {
 
 server.on("error", () => { console.error("[mock] cannot listen on the requested loopback port"); stop(); process.exitCode = 1; });
 server.listen(port, "127.0.0.1", () => {
-  console.log(`[mock] listening on ws://127.0.0.1:${port}/agent/ws`);
+  console.log(`[mock] listening on wss://127.0.0.1:${port}/agent/ws`);
   console.log("[mock] paste JSON to send; /sessions lists IDs; /drop tests reconnect. Ctrl-C exits.");
 });
 function stop(): void {

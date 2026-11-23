@@ -6,37 +6,21 @@ Small Go gateway and TypeScript Pi extension. Server-rendered HTML, plain CSS an
 
 Use Go **1.25+**, or enter `nix develop` for Go, Bun and Node.js/npm. Only Go is needed to build/run the server; Bun/Node are for browser tests and extension development.
 
+For the live deployment, follow the [mTLS operator runbook](docs/agent-mtls-operations.md). To start the browser gateway locally with a disposable test CA (OpenSSL is included in the dev shell):
+
 ```sh
 go test ./...
 go build -o .cache/pi-remote-server .
-cp -n agents.example.json agents.json
-chmod 600 agents.json
-```
-
-**Replace the example tokens before deployment**, using a different random token per host:
-
-```sh
-# Bun is available in nix develop; another secure random generator also works.
-bun -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))'
-```
-
-The token file is a JSON array:
-
-```json
-[{"host_id":"laptop","token":"replace-with-a-unique-random-secret"}]
-```
-
-Loopback development:
-
-```sh
-export HOST=127.0.0.1 PORT=3000
-export PI_REMOTE_TOKEN_FILE="$PWD/agents.json"
+bash scripts/dev-pki.sh pki
+export PI_REMOTE_ROOT_CA_FILE="$PWD/pki/root.pem"
+export PI_REMOTE_ENROLLMENTS_FILE="$PWD/pki/enrollments.json"
+export PI_REMOTE_AGENT_SOCKET="$PWD/.cache/agent.sock"
 .cache/pi-remote-server
 ```
 
-Open `http://127.0.0.1:3000`. Install/configure the extension below; `/remote-login` uses `ws://127.0.0.1:3000/agent/ws`, host `laptop`, and its matching token. Start Pi sessions on the host, not in this UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available in the composer.
+Open `http://127.0.0.1:3000`. It is browser-only; connecting an agent also requires a private mTLS proxy or the development TLS mock. Start Pi sessions on the host, not in the UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available.
 
-Behind a TLS proxy, set `PUBLIC_ORIGIN=https://pi.s.ihavenojob.work` (your actual origin). `HOST` defaults to loopback, `PORT` to 3000. `PI_REMOTE_TOKEN_FILE` is required. `PUBLIC_ORIGIN` must be one HTTP(S) origin without path, query or credentials. Credentials are validated and loaded **once at startup**; invalid files/duplicates abort startup. Restart to rotate tokens. Keep the file readable only by its owner/administrator.
+`HOST` defaults to loopback, `PORT` to 3000. Set `PUBLIC_ORIGIN` to the browser URL's origin behind a TLS proxy; it must be one HTTP(S) origin without a path, query or credentials. Agent trust and revocation configuration is loaded once on startup.
 
 The gateway uses Go's standard library plus pinned Gorilla WebSocket (`go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.22.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
 
@@ -60,7 +44,7 @@ pi install "https://github.com/pineapplehunter/pi-remote-server@main"
 
 Restart Pi or `/reload`. The repository root's `pi.extensions` manifest points to `pi-extension/extensions/pi-remote/index.ts`; Pi installs the root runtime dependencies for Git sources. `main` is a moving branch; use a commit/tag instead for reproducibility, and `pi update` to refresh an installed Git source. The change must be pushed to GitHub before remote installs can fetch it.
 
-Requires Pi **0.87.1** or a compatible later API and Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Credentials live at **`~/.pi/agent/remote.json`**, mode 0600, outside this repository/Nix store. Do not put tokens in `settings.json` or Nix expressions. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
+Requires Pi **0.87.1** or a compatible later API and Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-issue-certificate` D-Bus helper. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
 
 ### Nix / Home Manager
 
@@ -123,7 +107,7 @@ The extension observes failed assistant `message_end` events. Explicit exhausted
 {"version":1,"type":"error","session_id":"s1","code":"usage_limit_reached","message":"Pi's usage allowance/quota has been reached. ..."}
 ```
 
-The detail is bounded to 500 characters and the configured bearer token is redacted. At most one notice is emitted per agent run, including retries. The gateway forwards it over `/ws` and retains/displays it in the unified stream, even if the browser was closed at the time.
+The detail is bounded to 500 characters. At most one notice is emitted per agent run, including retries. The gateway forwards it over `/ws` and retains/displays it in the unified stream, even if the browser was closed at the time.
 
 A bare HTTP 429, throughput `rate_limit_exceeded`, other provider failures and successful text discussing limits **are not classified as exhausted usage**. This detects provider-reported failure text, not account telemetry or a predicted reset time; unfamiliar provider wording may need a classifier update. Upgrade **both gateway and extension** for the additional v1 error code; older gateways reject unknown codes. All other Pi wire shapes stay unchanged; history/sequence fields are browser-only.
 
@@ -140,28 +124,15 @@ The default `nix build` does the same. Image: `pi-remote-server:latest`. Linux x
 
 Measured linux/amd64 image layers: **121.15 MiB (Bun) → 11.81 MiB (Go)**, saving **109.35 MiB / 90.25%** uncompressed. See [build evidence and measurement method](docs/go-server-plan.md#measured-image-size).
 
-```sh
-docker run --detach --name pi-remote --restart unless-stopped \
-  --publish 127.0.0.1:3000:3000 \
-  --env PI_REMOTE_TOKEN_FILE=/run/pi-remote/agents.json \
-  --env PUBLIC_ORIGIN=https://pi.s.ihavenojob.work \
-  --mount "type=bind,src=$PWD/agents.json,dst=/run/pi-remote/agents.json,readonly" \
-  pi-remote-server:latest
-```
-
-For loopback testing use `PUBLIC_ORIGIN=http://127.0.0.1:3000` and exactly that browser address. The image uses `HOST=0.0.0.0` **inside** the container; publish on **host loopback only**. The reference-style image defaults to root; an optional `--user UID:GID` needs permission to read the mounted credentials. Startup fails without a readable token file. Restart after in-place credential changes; recreate after replacing the bind-mounted file.
-
-With the supplied `compose.yaml`:
+For local browser-only development with `compose.yaml`:
 
 ```sh
-export PUBLIC_ORIGIN=https://pi.s.ihavenojob.work
-docker compose pull
+bash scripts/dev-pki.sh pki
+rm pki/intermediate-key.pem   # Do not mount issuer keys in the gateway.
 docker compose up -d
-# After replacing/rotating the credential file:
-docker compose up -d --force-recreate
 ```
 
-Compose refuses a missing credential file and defaults to `ghcr.io/pineapplehunter/pi-remote-server:latest`. For a locally built image change it to `pi-remote-server:latest` and use `--pull never`. Unset `PUBLIC_ORIGIN` for Compose's loopback default. If the proxy runs in Docker, use a private network and `http://pi-remote:3000`, not a public host port.
+Compose uses `./pki` by default (override `PI_REMOTE_PKI_DIR`) and binds the browser port to host loopback only. The agent listener is a Unix socket in the `pi-remote-agent` volume, not a published port. The browser URL is `http://127.0.0.1:3000` unless `PUBLIC_ORIGIN` is set. For the real Caddy+Authelia deployment, use the [operator runbook](docs/agent-mtls-operations.md).
 
 [CI](.github/workflows/upload-oci.yml) tests/type-checks Go/browser/extension code and builds the server and Pi extension for pull requests. Main pushes/manual main runs additionally build/load/smoke-test the image and publish `ghcr.io/<lowercase owner/repository>:latest` using `GITHUB_TOKEN` (`packages: write`). The runner publishes linux/amd64, not a multi-platform manifest. GHCR visibility may need to be made public, or private pulls need a `read:packages` login. Nothing is published until the commits are pushed and CI succeeds.
 
@@ -171,14 +142,12 @@ Build the standalone executable with `nix build .#server --no-link`. Go dependen
 
 **There is no browser authentication in this server.** Bind it to loopback/private networking and put Authelia forward-auth in front of every browser route **and `/ws` upgrades**. All authenticated users see all connected registrations; no per-user filtering. Origin checking is defense-in-depth, not authentication.
 
-Deploy at the domain root, with two proxy branches:
+Use two HTTPS hostnames on Caddy:
 
-1. Exact **`/agent/ws`**: bypass Authelia; preserve `Authorization: Bearer <token>`. The gateway independently authenticates the host token. No redirects or token query parameters; query strings are rejected even with a valid header.
-2. **Every other path**, including `/`, `/ui/*`, `/public/*`, `/favicon.svg`, `/ws`, reserved `/api/*`: require successful Authelia forward-auth **before** forwarding. Reject unauthenticated upgrades; HTTP can redirect to the login portal.
+1. **Browser**: every browser route and `/ws` upgrade stays behind Authelia. The browser listener does not serve `/agent/ws`. Keep Host/Origin intact; `/ws` requires the exact `PUBLIC_ORIGIN` (or direct request origin when unset).
+2. **Agent**: only `/agent/ws` is served. Caddy verifies the process certificate chain and replaces the certificate header on the request to Go's private agent Unix socket. Go derives the host ID from an enrolled issuer and checks the startup revocation list before upgrade. Only Caddy may connect to that socket. Keep TLS SNI/HTTP Host matching enabled and Caddy admin private; never publish an agent TCP upstream.
 
-Terminate TLS with a valid certificate. Use HTTP/1.1 upstream, `Upgrade`/`Connection` headers, no WebSocket response buffering, and a read timeout comfortably above the gateway's 90-second idle window (e.g. 3600s); the gateway pings every 30 seconds. Preserve Host/Origin; never rewrite Origin to a trusted value. `/ws` requires exact `PUBLIC_ORIGIN`, or the direct request origin when unset; missing/null/foreign origins fail. Forwarded host/proto are not trusted. Pass original URL/method/cookies to Authelia using its supported proxy configuration. CDN script requests do not carry gateway credentials (`crossorigin="anonymous"`, same-origin referrer policy).
-
-Forward-auth checks the initial upgrade, not every message; existing sockets do not continuously recheck authorization. Browser reconnects re-run forward-auth. Keep the gateway accessible only to trusted local processes/proxy. Tokens/logs never include conversation text, tool args or raw headers. Avoid Authorization/payload logging in the proxy too. This remains a trusted conversation feed: only the configured extension token is specifically redacted; other arbitrary secrets are not detected.
+Forward-auth checks browser upgrades, not every message. Keep proxy and application logs free of credentials or payloads. Conversations and tool arguments are sent to a trusted gateway and arbitrary secrets in them are not automatically detected. See the [design](docs/agent-mtls-plan.md) and [operator runbook](docs/agent-mtls-operations.md).
 
 ## Routing / browser protocol
 
