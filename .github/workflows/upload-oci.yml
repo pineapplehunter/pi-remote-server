@@ -26,6 +26,12 @@ jobs:
       - name: Setup nix
         uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b # v31.10.4
 
+      # Tests also run on pull requests; use the shared cache read-only.
+      - uses: Mic92/niks3-action@53fc4d8be8e7f3693e1a6be91eede40590b0d1d2 # v1.12.0
+        with:
+          server-url: https://niks3.s.ihavenojob.work
+          skip-push: 'true'
+
       - name: Test and type-check
         run: |
           nix develop --command bash -euo pipefail -c '
@@ -51,12 +57,17 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup nix
         uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b # v31.10.4
+
+      - uses: Mic92/niks3-action@53fc4d8be8e7f3693e1a6be91eede40590b0d1d2 # v1.12.0
+        with:
+          server-url: https://niks3.s.ihavenojob.work
 
       - name: Build image
         run: nix build
