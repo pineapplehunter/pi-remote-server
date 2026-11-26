@@ -13,7 +13,7 @@ type Config struct {
 	Host                      string
 	Port                      int
 	AgentSocket, PublicOrigin string
-	DBPath, AdminToken        string
+	DBPath                    string
 }
 
 func loadConfig(getenv func(string) (string, bool)) (Config, error) {
@@ -34,7 +34,6 @@ func loadConfig(getenv func(string) (string, bool)) (Config, error) {
 	if !filepath.IsAbs(c.DBPath) {
 		return c, errors.New("PI_REMOTE_DB must be an absolute database path.")
 	}
-	c.AdminToken, _ = getenv("PI_REMOTE_ADMIN_TOKEN")
 	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.AgentSocket == "" {
 		return c, errors.New("Invalid configuration: set PI_REMOTE_TICKET_SOCKET and valid HOST/PORT.")
 	}

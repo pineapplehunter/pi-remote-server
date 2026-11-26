@@ -26,7 +26,7 @@ func (s *testStore) Ticket(id, key, c, sig string) (string, error) {
 }
 
 func TestAuthRoutes(t *testing.T) {
-	g := newGateway(Config{AdminToken: "secret"}, &testStore{})
+	g := newGateway(Config{}, &testStore{})
 	for _, tc := range []struct {
 		method, path, body string
 		public             bool
@@ -37,7 +37,7 @@ func TestAuthRoutes(t *testing.T) {
 		{"POST", "/agent/ticket", `{"host_id":"host","agent_key":"key","challenge":"nonce","signature":"signed"}`, false, 200, "ticket", "synthetic"},
 		{"POST", "/agent/ticket", "{}", true, 404, "", ""}, {"POST", "/agent/challenge", "{}", true, 404, "", ""}, {"GET", "/admin/hosts", "", false, 404, "", ""},
 		{"POST", "/agent/challenge", strings.Repeat(" ", authBodyLimit) + "{}", false, 400, "", ""}, {"GET", "/agent/ws?ticket=synthetic", "", false, 400, "", ""},
-		{"GET", "/agent/ws", "", false, 401, "", ""}, {"GET", "/admin/hosts", "", true, 401, "", ""},
+		{"GET", "/agent/ws", "", false, 401, "", ""}, {"GET", "/admin/hosts", "", true, 200, "", ""},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")
@@ -58,26 +58,14 @@ func TestAuthRoutes(t *testing.T) {
 			}
 		}
 	}
-	for _, tc := range []struct {
-		method, token, origin string
-		want                  int
-	}{{"GET", "secret", "", 200}, {"GET", "bad", "", 401}, {"POST", "secret", "", 403}, {"POST", "secret", "https://foreign", 403}} {
-		req := httptest.NewRequest(tc.method, "http://localhost/admin/hosts", nil)
-		req.SetBasicAuth("", tc.token)
-		req.Header.Set("Origin", tc.origin)
+	for _, origin := range []string{"", "https://foreign"} {
+		req := httptest.NewRequest("POST", "http://localhost/admin/hosts", nil)
+		req.Header.Set("Origin", origin)
 		w := httptest.NewRecorder()
 		g.ServeHTTP(w, req)
-		if w.Code != tc.want {
-			t.Errorf("admin: %d want %d", w.Code, tc.want)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("admin POST with Origin %q: %d", origin, w.Code)
 		}
-	}
-	g.config.AdminToken = ""
-	req := httptest.NewRequest("GET", "/admin/hosts", nil)
-	req.SetBasicAuth("", "")
-	w := httptest.NewRecorder()
-	g.ServeHTTP(w, req)
-	if w.Code != 404 {
-		t.Fatal("empty secret enabled admin")
 	}
 }
 

@@ -88,7 +88,7 @@ func (s *testStore) Hosts() ([]authHost, error) {
 }
 
 func TestConcurrentConnections(t *testing.T) {
-	gateway := newGateway(Config{AdminToken: "test-secret"}, &testStore{})
+	gateway := newGateway(Config{}, &testStore{})
 	server := httptest.NewServer(gateway)
 	defer server.Close()
 	private := httptest.NewServer(http.HandlerFunc(gateway.agentHandler))
@@ -180,7 +180,6 @@ func TestConcurrentConnections(t *testing.T) {
 	}
 	// Disabling the host removes all its sessions before any more frames can dispatch.
 	req := httptest.NewRequest("POST", server.URL+"/admin/hosts", strings.NewReader("action=disable&id=test-host"))
-	req.SetBasicAuth("admin", "test-secret")
 	req.Header.Set("Origin", server.URL)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()

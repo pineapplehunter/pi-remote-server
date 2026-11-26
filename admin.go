@@ -1,24 +1,11 @@
 package main
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"net/http"
 	"strings"
 )
 
 func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
-	if g.config.AdminToken == "" {
-		http.NotFound(w, r)
-		return
-	}
-	_, password, ok := r.BasicAuth()
-	want, got := sha256.Sum256([]byte(g.config.AdminToken)), sha256.Sum256([]byte(password))
-	if !ok || len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
-		w.Header().Set("WWW-Authenticate", `Basic realm="Host administration", charset="UTF-8"`)
-		http.Error(w, "Unauthorized", 401)
-		return
-	}
 	switch r.Method {
 	case "GET":
 		hosts, err := g.store.Hosts()

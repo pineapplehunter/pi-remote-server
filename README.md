@@ -144,7 +144,7 @@ Use two HTTPS hostnames on Caddy:
 1. **Browser**: every browser route and `/ws` upgrade stays behind Authelia. The browser listener does not serve `/agent/ws`. Keep Host/Origin intact; `/ws` requires the exact `PUBLIC_ORIGIN` (or direct request origin when unset).
 2. **Agent**: Caddy forwards only `/agent/challenge`, `/agent/ticket`, and `/agent/ws` to the ticket-authenticated Unix listener. Go verifies both SSH proofs. Never route this hostname to a legacy mTLS-offload listener.
 
-Browser forward-auth checks upgrades, not every message. Host enrollment at `/admin/hosts` additionally requires the gateway's admin credential. Keep proxy and application logs free of credentials or payloads. See the [operator runbook](docs/agent-ticket-operations.md).
+Browser forward-auth checks upgrades, not every message. Anyone who can access the browser UI can enroll and disable hosts at `/admin/hosts`. Keep proxy and application logs free of credentials or payloads. See the [operator runbook](docs/agent-ticket-operations.md).
 
 ## Routing / browser protocol
 

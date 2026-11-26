@@ -87,10 +87,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		name = "page"
 		data = struct {
-			Sessions     []Session
-			Selected     *SelectedView
-			AdminEnabled bool
-		}{g.registry.list(), selected, g.config.AdminToken != ""}
+			Sessions []Session
+			Selected *SelectedView
+		}{g.registry.list(), selected}
 	case path == "/ui/sessions":
 		name = "sessions"
 		data = g.registry.list()

@@ -4,14 +4,16 @@ Enroll the **host**, not individual sessions. Each configured Pi process (includ
 
 ## Server
 
-Set `PI_REMOTE_DB` to a file on a persistent volume owned by the gateway, `PI_REMOTE_TICKET_SOCKET` to the private agent socket, and `PUBLIC_ORIGIN` to the exact browser origin. Set a strong random `PI_REMOTE_ADMIN_TOKEN` via deployment secrets to enable host administration. Never use this credential in Pi, in a URL, or as the host SSH key passphrase. Keep the browser listener private behind Authelia, including `/admin/hosts`. Back up the enrollment DB using SQLite's backup facilities or stop the gateway before copying it.
+Set `PI_REMOTE_DB` to a file on a persistent volume owned by the gateway, `PI_REMOTE_TICKET_SOCKET` to the private agent socket, and `PUBLIC_ORIGIN` to the exact browser origin. Keep the browser listener private behind Authelia, including `/admin/hosts`: browser access grants host-management access. Back up the enrollment DB using SQLite's backup facilities or stop the gateway before copying it.
+
+Compose stores `hosts.sqlite` in `./data/` beside the standalone Compose file, or `./pi-remote-server/data/` in the Linode stack. If you already enrolled hosts using the old named volume, stop the gateway and copy the volume contents (including SQLite sidecar files) into the new directory before recreating it. Preserve ownership and restrict access to the gateway operator. An empty directory starts a fresh enrollment database.
 
 **Migrating from mTLS:** publish/load the ticket-capable gateway first. The new Caddy route must target `ticket.sock`, **never the old `agent.sock`**: the old listener trusted Caddy's TLS decision and is not safe behind ordinary HTTPS. Recreate the gateway with its new environment and DB volume, verify the new listener rejects unauthenticated upgrades, then reload Caddy. Stop the old service/listener. Do not solve mixed-version failures by enabling unauthenticated fallback. On rollback restore Caddy's mTLS enforcement *before* routing to legacy code.
 
 ## Host and workers
 
 1. Generate a dedicated OpenSSH Ed25519 key outside any worker-accessible mount, e.g. `install -d -m 700 ~/.config/pi-remote && ssh-keygen -t ed25519 -f ~/.config/pi-remote/host_ed25519`. Use a key accessible to the unattended host helper. An existing supported key also works; avoid sharing one private key across machines.
-2. On the browser hostname choose **Trusted hosts** (or visit `/admin/hosts`), enter the admin token as the HTTP Basic password (e.g. username `admin`), and enroll the public key and a recognizable name. Copy the assigned host ID.
+2. On the browser hostname choose **Trusted hosts** (or visit `/admin/hosts`) and enroll the public key and a recognizable name. Copy the assigned host ID.
 3. Configure the **host-side** helper by putting `{"host_id":"ENROLLED-UUID","origin":"https://pi-agent.s.ihavenojob.work"}` in `~/.config/pi-remote/host.json`. Its signing key is `~/.config/pi-remote/host_ed25519`. Install the matching wrapper/launcher and restart the parent Pi process. The gateway origin must not come from the D-Bus caller.
 4. Install the matching extension and use `/remote-login` with the agent WSS URL. With the extension enabled, launch a `pi-subagent`: parent and worker should appear as distinct registrations. The worker gets only the ticket-issuance D-Bus endpoint, never the host key or its SSH agent.
 5. To retire a host, disable its enrollment. Re-enroll with a fresh key if the private key is lost. Check that active registrations disappear and reconnects from the disabled host are rejected.

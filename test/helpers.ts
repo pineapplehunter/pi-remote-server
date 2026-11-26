@@ -57,7 +57,7 @@ export async function harness(publicOrigin?: string) {
   const socket = join(dir, "agent.sock");
   const env: Record<string, string | undefined> = {
     ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_TICKET_SOCKET: socket,
-    PI_REMOTE_DB: join(dir, "hosts.sqlite"), PI_REMOTE_ADMIN_TOKEN: randomUUID(),
+    PI_REMOTE_DB: join(dir, "hosts.sqlite"),
   };
   delete env.PUBLIC_ORIGIN;
   if (publicOrigin) env.PUBLIC_ORIGIN = publicOrigin;
@@ -94,11 +94,11 @@ export async function harness(publicOrigin?: string) {
     if (!enrolled) {
       const key = keypair();
       const admin = await fetch(`${base}/admin/hosts`, { method: "POST", redirect: "manual",
-        headers: { Origin: publicOrigin ?? base, Authorization: `Basic ${btoa(`admin:${env.PI_REMOTE_ADMIN_TOKEN}`)}` },
+        headers: { Origin: publicOrigin ?? base },
         body: new URLSearchParams({ action: "add", name: host, key: key.pub }),
       });
       if (admin.status !== 303) throw new Error(`Host enrollment: HTTP ${admin.status}`);
-      const list = await fetch(`${base}/admin/hosts`, { headers: { Authorization: `Basic ${btoa(`admin:${env.PI_REMOTE_ADMIN_TOKEN}`)}` } });
+      const list = await fetch(`${base}/admin/hosts`);
       const id = (await list.text()).match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g)?.find(id => ![...hosts.values()].some(h => h.id === id));
       if (!id) throw new Error("Missing enrollment ID");
       enrolled = { id, key: key.file };
