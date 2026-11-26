@@ -22,7 +22,7 @@ func TestConfigAndOrigin(t *testing.T) {
 	if _, err := config(nil); err == nil {
 		t.Fatal("private agent socket must be required")
 	}
-	base := map[string]string{"PI_REMOTE_AGENT_SOCKET": "/tmp/agent.sock"}
+	base := map[string]string{"PI_REMOTE_TICKET_SOCKET": "/tmp/agent.sock", "PI_REMOTE_DB": "/tmp/auth.db"}
 	c, err := config(base)
 	if err != nil || c.Host != "127.0.0.1" || c.Port != 3000 {
 		t.Fatal(c, err)

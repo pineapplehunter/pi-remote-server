@@ -1,25 +1,27 @@
 # Pi remote gateway
 
-Small Go gateway and TypeScript Pi extension. Server-rendered HTML, plain CSS and one vanilla-JavaScript browser WebSocket. HTMX, Marked and DOMPurify load from pinned jsDelivr URLs with SHA-384 integrity checks. No frontend build, database, browser login, supervisor, remote process launching or offline input queues.
+Small Go gateway and TypeScript Pi extension. Server-rendered HTML, build-time Tailwind CSS and one vanilla-JavaScript browser WebSocket. HTMX, Marked and DOMPurify load from pinned jsDelivr URLs with SHA-384 integrity checks. SQLite stores host enrollment and short-lived authentication records. No client-side CSS compiler, built-in session login, supervisor, remote process launching or offline input queues.
 
 ## Start
 
-Use Go **1.25+**, or enter `nix develop` for Go, Bun and Node.js/npm. Only Go is needed to build/run the server; Bun/Node are for browser tests and extension development.
+Enter `nix develop` for the pinned build tools, or supply Go **1.25+**, a C compiler (SQLite uses CGO), Make and the standalone Tailwind CSS v4 CLI. The gateway does not require Bun or Node at runtime.
 
-For the live deployment, follow the [mTLS operator runbook](docs/agent-mtls-operations.md). To start the browser gateway locally (no certificates needed for the browser listener):
+For the live deployment, follow the [SSH ticket setup](docs/agent-ticket-operations.md). To start the browser gateway locally (no certificates needed for the browser listener):
 
 ```sh
-go test ./...
-go build -o .cache/pi-remote-server .
-export PI_REMOTE_AGENT_SOCKET="$PWD/.cache/agent.sock"
+make build
+export PI_REMOTE_TICKET_SOCKET="$PWD/.cache/ticket.sock"
+export PI_REMOTE_DB="$PWD/.cache/hosts.sqlite"
 .cache/pi-remote-server
 ```
 
-Open `http://127.0.0.1:3000`. It is browser-only; connecting an agent also requires a private mTLS proxy or the development TLS mock. Start Pi sessions on the host, not in the UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available.
+`make build` generates minified `public/style.css` from `styles/input.css` and the classes in `templates/` and `public/app.js` before Go embeds it. Edit those sources, not the generated file. Run `make css` before using raw `go run`, `go build`, or `go test` commands.
 
-`HOST` defaults to loopback, `PORT` to 3000. Set `PUBLIC_ORIGIN` to the browser URL's origin behind a TLS proxy; it must be one HTTP(S) origin without a path, query or credentials. `PI_REMOTE_AGENT_SOCKET` must be a private Unix socket path; only the trusted proxy should have access.
+Open `http://127.0.0.1:3000`. It is browser-only; connecting an agent requires an enrolled host and a TLS proxy (or the extension development mock). Start Pi sessions on the host, not in the UI. Browser input remains literal text; busy Pi uses Follow-up by default, with Steer available.
 
-The gateway uses Go's standard library plus pinned Gorilla WebSocket (`go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.23.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
+`HOST` defaults to loopback, `PORT` to 3000. Set `PUBLIC_ORIGIN` to the browser URL's origin behind a TLS proxy; it must be one HTTP(S) origin without a path, query or credentials. `PI_REMOTE_TICKET_SOCKET` must be a private Unix socket path; only the trusted proxy should have access.
+
+The gateway uses SQLite, Gorilla WebSocket and OpenSSH signature verification (dependencies pinned in `go.mod`/`go.sum`). HTML templates, application JS/CSS and the favicon are embedded in the binary. Root npm runtime dependency `ws@8.23.0` is only for Pi Git-package installation; the Go server needs no npm install or JS runtime. Pi itself is supplied by the host. Browser library packages are **development-only**, for reproducible offline tests; browser deployment fetches their pinned CDN files. Application JS/CSS and the favicon stay local. If CDN/SRI loading fails, the UI keeps sending disabled and displays a library-loading error; allow `cdn.jsdelivr.net` and reload. There is no local vendor fallback.
 
 ## Install the Pi package
 
@@ -41,7 +43,7 @@ pi install "https://github.com/pineapplehunter/pi-remote-server@main"
 
 Restart Pi or `/reload`. The repository root's `pi.extensions` manifest points to `pi-extension/extensions/pi-remote/index.ts`; Pi installs the root runtime dependencies for Git sources. `main` is a moving branch; use a commit/tag instead for reproducibility, and `pi update` to refresh an installed Git source. The change must be pushed to GitHub before remote installs can fetch it.
 
-Tested with Pi **1.6.0**; requires Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-issue-certificate` D-Bus helper. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
+Tested with Pi **1.6.0**; requires Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-request-ticket` D-Bus helper and `ssh-keygen`. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
 
 ### Nix / Home Manager
 
@@ -110,7 +112,7 @@ A bare HTTP 429, throughput `rate_limit_exceeded`, other provider failures and s
 
 ## Docker / OCI
 
-Packaging follows [prometheus-switchbot](https://github.com/pineapplehunter/prometheus-switchbot): Nix `dockerTools.streamLayeredImage`, an executable image streamer, and GitHub Actions publishing GHCR `latest`. No Dockerfile/frontend build. The image contains a stripped, statically linked Go executable with embedded templates/static assets and Nix's small standard timezone/MIME/network data dependencies. No Bun/Node, npm dependencies, extension code, source tree, credentials, tests or `.env`. No CA bundle is needed: the gateway makes no outbound TLS requests; browser CDN requests happen in the browser.
+Packaging follows [prometheus-switchbot](https://github.com/pineapplehunter/prometheus-switchbot): Nix `dockerTools.streamLayeredImage`, an executable image streamer, and GitHub Actions publishing GHCR `latest`. No Dockerfile. The Nix build compiles Tailwind before building the gateway. The image contains a stripped Go executable with embedded templates/static assets and Nix's small standard timezone/MIME/network data dependencies. No Bun/Node, npm dependencies, extension code, source tree, credentials, tests or `.env`. No CA bundle is needed: the gateway makes no outbound TLS requests; browser CDN requests happen in the browser.
 
 ```sh
 nix build .#docker
@@ -119,7 +121,7 @@ nix build .#docker
 
 The default `nix build` does the same. Image: `pi-remote-server:latest`. Linux x86_64/aarch64 outputs are available; Darwin has a development shell and standalone server package, not a native image output.
 
-Measured linux/amd64 image layers: **121.15 MiB (Bun) → 11.81 MiB (Go)**, saving **109.35 MiB / 90.25%** uncompressed. See [build evidence and measurement method](docs/go-server-plan.md#measured-image-size).
+Historical measurement before SSH/SQLite authentication: **121.15 MiB (Bun) → 11.81 MiB (Go)** uncompressed. The current image also includes SQLite and its runtime dependencies. See [build evidence and measurement method](docs/go-server-plan.md#measured-image-size).
 
 For local browser-only development with `compose.yaml`:
 
@@ -127,11 +129,11 @@ For local browser-only development with `compose.yaml`:
 docker compose up -d
 ```
 
-Compose binds the browser port to host loopback only. The agent listener is a Unix socket in the `pi-remote-agent` volume, not a published port. The browser URL is `http://127.0.0.1:3000` unless `PUBLIC_ORIGIN` is set. For the real Caddy+Authelia deployment, use the [operator runbook](docs/agent-mtls-operations.md).
+Compose binds the browser port to host loopback only. The agent listener is a Unix socket in the `pi-remote-agent` volume, not a published port. The browser URL is `http://127.0.0.1:3000` unless `PUBLIC_ORIGIN` is set. For the Caddy+Authelia deployment, use the [operator runbook](docs/agent-ticket-operations.md).
 
 [CI](.github/workflows/upload-oci.yml) tests/type-checks Go/browser/extension code and builds the server and Pi extension for pull requests. Main pushes/manual main runs additionally build/load/smoke-test the image and publish `ghcr.io/<lowercase owner/repository>:latest` using `GITHUB_TOKEN` (`packages: write`). The runner publishes linux/amd64, not a multi-platform manifest. GHCR visibility may need to be made public, or private pulls need a `read:packages` login. Nothing is published until the commits are pushed and CI succeeds.
 
-Build the standalone executable with `nix build .#server --no-link`. Go dependencies are pinned by `go.mod`/`go.sum` and `vendorHash` in `flake.nix`; after dependency changes, run `go mod tidy`, temporarily set `vendorHash = pkgs.lib.fakeHash`, build `.#server` and replace it with Nix's reported `got: sha256-...`. Root npm manifests/lock affect only extension installation and browser tests, not the gateway image.
+Build the standalone executable with `nix build .#server --no-link`. Go dependencies are pinned by `go.mod`/`go.sum` and `vendorHash` in `go-server.nix`; after dependency changes, run `go mod tidy`, temporarily set `vendorHash = lib.fakeHash`, build `.#server` and replace it with Nix's reported `got: sha256-...`. Root npm manifests/lock affect only extension installation and browser tests, not the gateway image.
 
 ## Authentication / reverse proxy
 
@@ -140,9 +142,9 @@ Build the standalone executable with `nix build .#server --no-link`. Go dependen
 Use two HTTPS hostnames on Caddy:
 
 1. **Browser**: every browser route and `/ws` upgrade stays behind Authelia. The browser listener does not serve `/agent/ws`. Keep Host/Origin intact; `/ws` requires the exact `PUBLIC_ORIGIN` (or direct request origin when unset).
-2. **Agent**: only `/agent/ws` is served. Caddy verifies the process certificate chain against the dedicated root and proxies to Go’s private agent Unix socket. It forwards the issuer name as a display label, not a credential. Go does not handle certificates, an allowlist, or revocation. Only Caddy may connect to that socket. Keep TLS SNI/HTTP Host matching enabled and Caddy admin private; never publish an agent TCP upstream.
+2. **Agent**: Caddy forwards only `/agent/challenge`, `/agent/ticket`, and `/agent/ws` to the ticket-authenticated Unix listener. Go verifies both SSH proofs. Never route this hostname to a legacy mTLS-offload listener.
 
-Forward-auth checks browser upgrades, not every message. Keep proxy and application logs free of credentials or payloads. Conversations and tool arguments are sent to a trusted gateway and arbitrary secrets in them are not automatically detected. See the [design](docs/agent-mtls-plan.md) and [operator runbook](docs/agent-mtls-operations.md).
+Browser forward-auth checks upgrades, not every message. Host enrollment at `/admin/hosts` additionally requires the gateway's admin credential. Keep proxy and application logs free of credentials or payloads. See the [operator runbook](docs/agent-ticket-operations.md).
 
 ## Routing / browser protocol
 
@@ -152,9 +154,9 @@ Browser -- HTTP fragments + /ws --> Go gateway <-- /agent/ws -- Pi extension
 
 Each Pi process owns a socket; multiple independent processes may show the same host label. A Pi session ID can collide across processes; the gateway assigns a unique **`registration_id` UUID** and checks its exact owner plus original `session_id`. It never falls back to a different process. Disconnect removes only that socket's registration, leaving other processes on the same host connected. Metadata snapshots exclude socket/history/credentials. Status is null until reported, then `idle`/`working`; `connected_at`/`last_seen` are epoch milliseconds (application traffic, not ping/pong).
 
-All HTTP routes are GET-only (405 otherwise); unknown routes return 404. Static routes are explicitly whitelisted: `/public/app.js`, `/public/style.css`, `/favicon.svg`. Dynamic fragments: `/ui/sessions`, `/ui/sessions/:registrationId`, `/ui/empty`; `/` optionally accepts `?session=<UUID>`. Responses are `no-store`, no-sniff, same-origin-referrer with CSP allowing scripts only from self/jsDelivr, and blocking objects/framing/inline evaluation. HTMX evaluation, injected scripts, indicator styles and history caching are disabled.
+Ordinary browser views are GET-only (405 otherwise); unknown routes return 404. Static routes are explicitly whitelisted: `/public/app.js`, `/public/style.css`, `/favicon.svg`. Dynamic fragments: `/ui/sessions`, `/ui/sessions/:registrationId`, `/ui/empty`; `/` optionally accepts `?session=<UUID>`. Responses are `no-store`, no-sniff, same-origin-referrer with CSP allowing scripts only from self/jsDelivr, and blocking objects/framing/inline evaluation. HTMX evaluation, injected scripts, indicator styles and history caching are disabled.
 
-Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). The gateway validates and strips unknown envelope fields from JSON text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. The only server → Pi message is `{version:1,type:"message.send",session_id,text}` with optional `delivery: "steer" | "followUp"` (default: `followUp`).
+Pi v1 is documented in [`docs/pi-protocol-v1.md`](docs/pi-protocol-v1.md). The gateway validates and strips unknown envelope fields from JSON text frames: 1 MiB frame, 100 KiB UTF-8 browser input, 16 KiB tool args. Invalid agent messages/host/ownership cause payload-free cleanup and close 1008; the gateway never sends incompatible error frames to Pi. After authentication the only server → Pi application message is `{version:1,type:"message.send",session_id,text}` with optional `delivery: "steer" | "followUp"` (default: `followUp`).
 
 Browser → gateway:
 
@@ -183,6 +185,7 @@ A successful socket write is **not Pi acceptance**. User messages appear only on
 ## Verification / tasks
 
 ```sh
+make css
 go test -race ./... && go vet ./...
 bun install --frozen-lockfile
 bun test && bun run typecheck
@@ -192,4 +195,4 @@ nix flake check --no-build --all-systems
 
 Go tests cover config/auth/protocol validation, bounded history and concurrent registrations. Bun drives the real Go executable for HTTP/WebSocket routing/auth, lifecycle/history restoration, server-rendered pages and jsdom UI tests (safe Markdown, unified/parallel tool rows, composer, snapshot overlap and pinned CDN integrity). Test-only TypeScript history fixtures model browser events; they are not shipped. Set `PI_REMOTE_SERVER_BINARY` to test an already-built executable instead of compiling one. DOM tests use **jsdom** (not Happy DOM, which is not supported for DOMPurify security testing). The real Pi SDK test discovers the **root package from settings**, runs idle/busy remote input and a real tool, then emits a synthetic provider quota failure—no provider network calls or user credentials. Mobile layout/Authelia still need validation in your environment. Nix image/extension builds can be verified here, but there is no local Docker daemon; CI runs the container smoke test and publishing.
 
-Requests and completion evidence live in the versioned [`todo/`](todo/README.md) task list. Gateway code is in root `*.go` files, embedded views in `templates/`, client JS/CSS in `public/`, extension in `pi-extension/`. The Go migration plan and build/size evidence are in [`docs/go-server-plan.md`](docs/go-server-plan.md). Local `agents.json`, `.env`, `node_modules` and `result` stay ignored; the existing local credentials are never inspected, overwritten, served or committed.
+Requests and completion evidence live in the versioned [`todo/`](todo/README.md) task list. Gateway code is in root `*.go` files, embedded views in `templates/`, browser JS in `public/` and CSS source in `styles/`, extension in `pi-extension/`. The Go migration plan and build/size evidence are in [`docs/go-server-plan.md`](docs/go-server-plan.md). Local `agents.json`, `.env`, `node_modules` and `result` stay ignored; the existing local credentials are never inspected, overwritten, served or committed.

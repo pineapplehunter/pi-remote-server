@@ -7,7 +7,7 @@ import { delimiter, join } from "node:path";
 import { setDefaultCACertificates } from "node:tls";
 import { after } from "node:test";
 import { WebSocketServer, type WebSocket } from "ws";
-import { processKey, requestIdentity } from "../extensions/pi-remote/identity.ts";
+import { mockProof } from "../dev/mock-proof.ts";
 
 let fixture: { ca: string; key: string; cert: string } | undefined;
 let fixtureDirectory: string | undefined;
@@ -21,22 +21,17 @@ export function tlsFixtures() {
   openssl("req", "-new", "-x509", ...keyArgs, "-subj", "/CN=Pi Test Root", "-days", "5",
     "-addext", "basicConstraints=critical,CA:TRUE,pathlen:1", "-addext", "keyUsage=critical,keyCertSign",
     "-keyout", "root.key", "-out", "root.pem");
-  const issuerProfile = "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign\n";
-  const serverProfile = "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1,DNS:localhost\n";
-  for (const [id, profile] of [["issuer", issuerProfile], ["server", serverProfile]] as const) {
-    openssl("req", "-new", ...keyArgs, "-subj", `/CN=${id}`, "-keyout", `${id}.key`, "-out", `${id}.csr`);
-    writeFileSync(file(`${id}.ext`), profile);
-    openssl("x509", "-req", "-in", `${id}.csr`, "-CA", "root.pem", "-CAkey", "root.key",
-      "-extfile", `${id}.ext`, "-days", "3", "-out", `${id}.pem`);
-  }
-  writeFileSync(file("leaf.ext"), "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n");
+  openssl("req", "-new", ...keyArgs, "-subj", "/CN=localhost", "-keyout", "server.key", "-out", "server.csr");
+  writeFileSync(file("server.ext"), "basicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1,DNS:localhost\n");
+  openssl("x509", "-req", "-in", "server.csr", "-CA", "root.pem", "-CAkey", "root.key", "-extfile", "server.ext", "-days", "3", "-out", "server.pem");
   mkdirSync(file("bin"));
-  writeFileSync(file("bin/pi-remote-issue-certificate"), `#!${process.execPath}
-const { readFileSync } = require('node:fs');
-const { execFileSync } = require('node:child_process');
-const leafPEM = execFileSync('openssl', ['x509','-req','-CA','issuer.pem','-CAkey','issuer.key','-extfile','leaf.ext','-days','1'],
-  {cwd:${JSON.stringify(directory)},input:readFileSync(0),encoding:'utf8'});
-process.stdout.write(JSON.stringify({leafPEM,intermediatePEM:readFileSync(${JSON.stringify(file("issuer.pem"))},'utf8')}));
+  writeFileSync(file("bin/pi-remote-request-ticket"), `#!${process.execPath}
+const fs = require('node:fs');
+const pub = fs.readFileSync(0, 'utf8').trimEnd();
+if (!/^ssh-ed25519 [A-Za-z0-9+/]{68}$/.test(pub) || process.env.SSH_AUTH_SOCK) process.exit(1);
+const ticket = require('node:crypto').randomBytes(32).toString('base64url');
+fs.writeFileSync(require('node:path').join(${JSON.stringify(directory)},ticket), pub);
+console.log(ticket);
 `, { mode: 0o700 });
   process.env.PATH = `${file("bin")}${delimiter}${process.env.PATH ?? ""}`;
   fixture = { ca: file("root.pem"), cert: file("server.pem"), key: file("server.key") };
@@ -45,13 +40,13 @@ process.stdout.write(JSON.stringify({leafPEM,intermediatePEM:readFileSync(${JSON
 }
 
 export function testHttps() {
-  const {ca, cert, key} = tlsFixtures();
-  return createServer({ca: readFileSync(ca), cert: readFileSync(cert), key: readFileSync(key), requestCert: true, rejectUnauthorized: true});
+  const {cert, key} = tlsFixtures();
+  return createServer({ cert: readFileSync(cert), key: readFileSync(key) });
 }
 
-export function clientIdentity() {
-  tlsFixtures();
-  return requestIdentity(processKey(), new AbortController().signal);
+export function ticketPub(ticket: string) {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(ticket)) throw Error("Invalid fixture ticket");
+  return readFileSync(join(fixtureDirectory!, ticket), "utf8");
 }
 
 /** Event-driven inbox with bounded waits; tests never need a model or external service. */
@@ -77,11 +72,16 @@ export class Inbox<T> {
   }
 }
 
-export async function localServer(): Promise<{ server: WebSocketServer; url: string; sockets: Inbox<WebSocket> }> {
+export async function localServer(prove = true): Promise<{ server: WebSocketServer; url: string; sockets: Inbox<WebSocket> }> {
   const https = testHttps();
   const server = new WebSocketServer({ server: https });
   const sockets = new Inbox<WebSocket>();
-  server.on("connection", (socket) => sockets.push(socket));
+  server.on("connection", (socket, req) => {
+    if (!prove) { sockets.push(socket); return; }
+    const ticket = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+    if (!ticket) { socket.terminate(); return; }
+    mockProof(socket, ticketPub(ticket), () => sockets.push(socket));
+  });
   server.once("close", () => https.close());
   https.listen(0, "127.0.0.1");
   await once(server, "listening");

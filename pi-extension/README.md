@@ -44,7 +44,7 @@ remotePackage = inputs.pi-remote-server.packages.${pkgs.stdenv.hostPlatform.syst
 
 Add `"${remotePackage}"` to your existing managed Pi package list for `pi`/`pi-work`, replacing the old remote package entry. Apply your normal NixOS/Home Manager configuration, then restart Pi or run `/reload`. Use the **built package output**, not the raw `pi-extension/` source directory in the read-only Nix store: the output includes `node_modules/ws`.
 
-The host issuer and filtered D-Bus integration are provided by `nixos-config`, not by this Pi package. See the [operator runbook](../docs/agent-mtls-operations.md) to enroll the host.
+Install `ssh-keygen` and the filtered `pi-remote-request-ticket` helper in the agent environment. The host-side ticket service is installed separately and keeps the enrolled host signing key outside Pi.
 
 ### Local source installation / development
 
@@ -76,13 +76,13 @@ pi --no-extensions -e ./extensions/pi-remote/index.ts
 
 ## Configure in Pi
 
-Enroll the host per the [operator runbook](../docs/agent-mtls-operations.md), then run **`/remote-login`** and accept `wss://pi-agent.s.ihavenojob.work/agent/ws` or enter your agent endpoint. Only `wss://` and the `/agent/ws` path are accepted; don't include credentials, query parameters, or fragments. Configuration is saved atomically to **`~/.pi/agent/remote.json`**, mode 0600:
+Have the administrator register the host’s SSH public key on the gateway and configure its returned host ID and HTTPS origin in the host ticket service, then run **`/remote-login`** and accept `wss://pi-agent.s.ihavenojob.work/agent/ws` or enter your agent endpoint. Only `wss://` and the `/agent/ws` path are accepted; don't include credentials, query parameters, or fragments. Configuration is saved atomically to **`~/.pi/agent/remote.json`**, mode 0600:
 
 ```json
 {"version":2,"url":"wss://pi-agent.s.ihavenojob.work/agent/ws"}
 ```
 
-Run setup again to replace an earlier configuration. The file stores no private key or certificate. Each Pi process uses an in-memory key and invokes the installed `pi-remote-issue-certificate` D-Bus helper before dialing. `/remote-status` reports the URL, session, and connection state; if issuance fails, check the host D-Bus service. The footer dot is green when connected, yellow while connecting, dim when offline, and red on an issuance or authentication error.
+Run setup again to replace an earlier configuration. The WebSocket URL must point to the same gateway pinned in the host service. The extension never passes that URL to the helper or follows redirects. On every connection attempt it creates a fresh Ed25519 key in a private temporary directory and supplies only the public key to the helper. It presents the returned single-use ticket and signs the socket challenge, then discards the key. Session data is blocked until `auth.ok`. `/remote-status` reports the URL, session, and connection state. The footer dot is green when authenticated, yellow while connecting, dim when offline, and red on a ticket or authentication error.
 
 The file is shared by normal/work Pi profiles. To disconnect, remove it and reload or restart each running Pi process. File deletion alone doesn't disconnect an existing socket. Pi's own `/name` also updates the session name while connected.
 
@@ -96,15 +96,14 @@ Bare HTTP 429 / throughput rate limits, unrelated errors and successful text are
 
 ## Development TLS mock
 
-The loopback-only mock prints event summaries, accepts an explicitly configured test client CA, and can send JSON from stdin:
+The loopback-only mock exercises one synthetic ticket and verifies a real SSHSIG with the public key bound to it. It does not contact the host service. See `tests/mock.test.ts` for a complete setup. For an existing disposable fixture:
 
 ```sh
-npm ci --ignore-scripts
-npm run mock -- --port 8765 --key /path/to/test-server-key.pem \
-  --cert /path/to/test-server.pem --client-ca /path/to/test-root.pem
+npm run mock -- --port 8765 --key test-server-key.pem --cert test-server.pem \
+  --ticket ticket.txt --pub agent.pub
 ```
 
-Use disposable certificates. The server certificate must be trusted by the test Pi's Node process and match the URL (e.g. IP SAN `127.0.0.1`). The Pi client must also have a test issuer for a client chain trusted by the mock. Automated extension tests create temporary TLS fixtures and a test issuer; they do not use deployed credentials. The mock accepts `/sessions`, `/drop`, and JSON `message.send` input.
+Use private fixture files and a server certificate trusted by the test Node process with an IP SAN for `127.0.0.1`. Restart the mock with a new fixture for a new connection. The mock accepts `/sessions`, `/drop`, and JSON `message.send` input.
 
 ## Automated verification
 
@@ -116,7 +115,7 @@ npm run typecheck
 npm test
 ```
 
-Tests cover JSON/schema/session/UTF-8 limits, config file permissions, activity translation, mTLS, reconnect/backoff/reset, authentication failures, timer cleanup, lifecycle replacement, and idle/busy remote input. A real Pi SDK integration loads the extension through Pi's loader and executes a synthetic model plus the real bash tool, without provider network requests or user credentials.
+Tests cover JSON/schema/session/UTF-8 limits, config file permissions, activity translation, ticket and SSHSIG authentication, reconnect/backoff/reset, authentication failures, timer cleanup, lifecycle replacement, and idle/busy remote input. A real Pi SDK integration loads the extension through Pi's loader and executes a synthetic model plus the real bash tool, without provider network requests or user credentials.
 
 Repository evaluation:
 

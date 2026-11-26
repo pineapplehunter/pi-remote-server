@@ -4,19 +4,19 @@ import { agentHostHeader, harness, register } from "./helpers.ts";
 const event = (type: string, data: object = {}) => ({ version: 1, type, session_id: "s1", ...data });
 
 describe("real Go HTTP / WebSocket gateway", () => {
-  test("agent route is private; its host label is optional and browser Origin is required", async () => {
+  test("agent route is private; host identity comes from enrollment and browser Origin is required", async () => {
     const h = await harness("https://pi.example");
     try {
       expect((await fetch(`${h.base}/agent/ws`, { headers: { [agentHostHeader]: "laptop" } })).status).toBe(404);
       expect((await h.agentHTTP("/ws")).status).toBe(404);
       expect((await h.agentHTTP("/agent/ws?unexpected=1")).status).toBe(400);
-      expect((await h.agentHTTP("/agent/ws")).status).toBe(426);
+      expect((await h.agentHTTP("/agent/ws")).status).toBe(401);
       expect((await fetch(`${h.base}/ws`)).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://evil" } })).status).toBe(403);
       expect((await fetch(`${h.base}/ws`, { headers: { Origin: "https://pi.example" } })).status).toBe(426);
       const browser = await h.browser();
-      register(await h.agent(null));
-      expect((await browser.take("session.added")).session.host_id).toBe("Pi agent");
+      register(await h.agent());
+      expect((await browser.take("session.added")).session.host_id).toBe(h.hostID("laptop"));
     } finally { h.stop(); }
   });
 
@@ -28,7 +28,7 @@ describe("real Go HTTP / WebSocket gateway", () => {
       const added = await b.take("session.added");
       await observer.take("session.added");
       const id = added.session.registration_id;
-      expect((await h.sessions()).filter(s => s.host_id === "laptop")).toHaveLength(1);
+      expect((await h.sessions()).filter(s => s.host_id === h.hostID("laptop"))).toHaveLength(1);
       const list = await (await fetch(`${h.base}/ui/sessions`)).text();
       expect(list).toContain("&lt;img"); expect(list).not.toContain("<img");
       const detail = await (await fetch(`${h.base}/ui/sessions/${id}`)).text();
@@ -59,10 +59,10 @@ describe("real Go HTTP / WebSocket gateway", () => {
       register(a2, { pid: 456 }); const r2 = (await b.take("session.added")).session.registration_id;
       register(a3, { host_id: "laptop" });
       const third = (await b.take("session.added")).session;
-      expect(third.host_id).toBe("gpu01");
+      expect(third.host_id).toBe(h.hostID("gpu01"));
       const r3 = third.registration_id;
       expect(new Set([r1, r2, r3]).size).toBe(3);
-      expect((await h.sessions()).filter(s => s.host_id === "laptop")).toHaveLength(2);
+      expect((await h.sessions()).filter(s => s.host_id === h.hostID("laptop"))).toHaveLength(2);
       b.send({ version: 1, type: "message.send", registration_id: r2, session_id: "s1", text: "  hello\n", request_id: "request1" });
       expect(await a2.take("message.send")).toEqual({ version: 1, type: "message.send", session_id: "s1", text: "  hello\n" });
       expect(a1.events).toHaveLength(0); expect(a3.events).toHaveLength(0);

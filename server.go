@@ -12,10 +12,13 @@ import (
 type Gateway struct {
 	config   Config
 	registry *Registry
+	store    gatewayStore
+	pending  chan struct{}
+	closing  bool // guarded by registry.mu
 }
 
-func newGateway(config Config) *Gateway {
-	return &Gateway{config: config, registry: newRegistry()}
+func newGateway(config Config, store gatewayStore) *Gateway {
+	return &Gateway{config: config, registry: newRegistry(), store: store, pending: make(chan struct{}, 64)}
 }
 
 var securityHeaders = map[string]string{
@@ -29,22 +32,29 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for k, v := range securityHeaders {
 		w.Header().Set(k, v)
 	}
+	if r.URL.EscapedPath() == "/admin/hosts" {
+		g.admin(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/agent/") {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != "GET" {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
 	path := r.URL.Path
-	if path == "/agent/ws" {
-		http.NotFound(w, r)
-		return
-	}
 	if path == "/ws" {
 		if !originAllowed(r, g.config.PublicOrigin) {
 			http.Error(w, "Forbidden origin", 403)
 			return
 		}
-		g.websocket(w, r, "")
+		conn := upgrade(w, r)
+		if conn != nil {
+			g.serveSocket(newSocket(conn, ""))
+		}
 		return
 	}
 	file, contentType := "", ""
@@ -77,9 +87,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		name = "page"
 		data = struct {
-			Sessions []Session
-			Selected *SelectedView
-		}{g.registry.list(), selected}
+			Sessions     []Session
+			Selected     *SelectedView
+			AdminEnabled bool
+		}{g.registry.list(), selected, g.config.AdminToken != ""}
 	case path == "/ui/sessions":
 		name = "sessions"
 		data = g.registry.list()
@@ -113,24 +124,32 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprint(w, body)
 }
-func (g *Gateway) websocket(w http.ResponseWriter, r *http.Request, hostID string) {
+func upgrade(w http.ResponseWriter, r *http.Request) *websocket.Conn {
 	if !websocket.IsWebSocketUpgrade(r) {
 		http.Error(w, "WebSocket upgrade required", 426)
-		return
+		return nil
 	}
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }, HandshakeTimeout: 10 * time.Second}
 	// Auth/origin have already been checked; preserve security headers on upgrades too.
 	conn, err := upgrader.Upgrade(w, r, w.Header())
 	if err != nil {
-		return
+		return nil
 	}
-	socket := newSocket(conn, hostID)
+	return conn
+}
+func (g *Gateway) serveSocket(socket *Socket) {
+	conn, hostID := socket.conn, socket.hostID
 	registry := g.registry
 	registry.mu.Lock()
-	if hostID != "" {
-		registry.agents[socket] = true
-		logEvent("host.connected", nil)
-	} else {
+	if g.closing || (hostID != "" && !registry.agents[socket]) {
+		if hostID != "" {
+			registry.disconnect(socket)
+		}
+		registry.mu.Unlock()
+		socket.close(1001, "Gateway shutting down.")
+		return
+	}
+	if hostID == "" {
 		registry.browsers[socket] = true
 		socket.send(Message{"version": 1, "type": "sessions.snapshot", "sessions": registry.list()})
 		logEvent("browser.connected", nil)
@@ -178,6 +197,7 @@ func (g *Gateway) websocket(w http.ResponseWriter, r *http.Request, hostID strin
 func (g *Gateway) close() {
 	g.registry.mu.Lock()
 	defer g.registry.mu.Unlock()
+	g.closing = true
 	for socket := range g.registry.agents {
 		socket.close(1001, "Gateway shutting down.")
 	}

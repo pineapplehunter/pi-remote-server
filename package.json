@@ -20,8 +20,9 @@
     }
   },
   "scripts": {
-    "start": "go run .",
-    "test": "go test ./... && bun test",
+    "build": "make build",
+    "start": "make css && go run .",
+    "test": "make test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

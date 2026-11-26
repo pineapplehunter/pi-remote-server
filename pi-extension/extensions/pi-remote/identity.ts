@@ -1,49 +1,38 @@
 import { execFile } from "node:child_process";
-import { createPublicKey, generateKeyPairSync, sign, X509Certificate, type KeyObject } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-let key: KeyObject | undefined;
-
-export function processKey(): KeyObject {
-  return key ??= generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
-}
-
-function der(tag: number, ...fields: Buffer[]): Buffer {
-  const body = Buffer.concat(fields);
-  // Fixed P-256 CSR fields keep every length below 256 bytes.
-  if (body.length > 255) throw new Error("Unexpected CSR size");
-  const header = body.length < 128 ? [tag, body.length] : [tag, 0x81, body.length];
-  return Buffer.concat([Buffer.from(header), body]);
-}
-
-export function csrPEM(privateKey: KeyObject): string {
-  const spki = createPublicKey(privateKey).export({ format: "der", type: "spki" });
-  // PKCS#10 CertificationRequestInfo: version 0, empty subject, SPKI, empty attributes.
-  const info = der(0x30, Buffer.from("0201003000", "hex"), spki, Buffer.from("a000", "hex"));
-  const algorithm = Buffer.from("300a06082a8648ce3d040302", "hex"); // ecdsa-with-SHA256
-  const signature = der(0x03, Buffer.from([0]), sign("sha256", info, privateKey));
-  const lines = der(0x30, info, algorithm, signature).toString("base64").match(/.{1,64}/g)!;
-  return `-----BEGIN CERTIFICATE REQUEST-----\n${lines.join("\n")}\n-----END CERTIFICATE REQUEST-----\n`;
-}
-
-export async function requestIdentity(privateKey: KeyObject, signal: AbortSignal): Promise<{ key: string; cert: string }> {
-  const csr = csrPEM(privateKey);
-  const result = await new Promise<string>((resolve, reject) => {
-    const child = execFile("pi-remote-issue-certificate", {
-      encoding: "utf8", timeout: 10_000, maxBuffer: 32 * 1024, signal,
-    }, (error, stdout) => {
-      if (error) reject(new Error("Pi Remote certificate issuer unavailable or rejected the request"));
-      else resolve(stdout);
+function run(command: string, args: string[], input: string, signal: AbortSignal): Promise<string> {
+  const env = { ...process.env };
+  delete env.SSH_AUTH_SOCK;
+  return new Promise((resolve, reject) => {
+    const child = execFile(command, args, { signal, env, timeout: 10000, killSignal: "SIGKILL", maxBuffer: 8192, encoding: "utf8" }, (err, stdout) => {
+      if (err) reject(new Error("Remote authentication command failed")); else resolve(stdout);
     });
-    child.stdin?.on("error", () => { /* Early exit is reported by execFile. */ });
-    child.stdin?.end(csr);
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(input);
   });
-  const { leafPEM, intermediatePEM } = JSON.parse(result) as { leafPEM?: unknown; intermediatePEM?: unknown };
-  if (typeof leafPEM !== "string" || typeof intermediatePEM !== "string" ||
-      !new X509Certificate(leafPEM).checkPrivateKey(privateKey) || !new X509Certificate(intermediatePEM).ca) {
-    throw new Error("Pi Remote issuer returned an invalid certificate chain");
+}
+
+export async function requestIdentity(signal: AbortSignal) {
+  signal.throwIfAborted();
+  // mkdtemp creates a private 0700 directory before ssh-keygen creates either file.
+  const dir = mkdtempSync(join(tmpdir(), "pi-remote-key-"));
+  const key = join(dir, "agent");
+  function dispose() {
+    rmSync(dir, { recursive: true, force: true });
+    process.off("exit", dispose);
+    signal.removeEventListener("abort", dispose);
   }
-  return {
-    key: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
-    cert: `${leafPEM.trim()}\n${intermediatePEM.trim()}\n`,
-  };
+  process.once("exit", dispose);
+  signal.addEventListener("abort", dispose, { once: true });
+  try {
+    await run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "", "-f", key], "", signal);
+    const pub = readFileSync(`${key}.pub`, "utf8").trim();
+    if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$/.test(pub)) throw new Error("Invalid agent public key");
+    const result = await run("pi-remote-request-ticket", [], `${pub}\n`, signal);
+    if (!/^[A-Za-z0-9_-]{1,4096}\n$/.test(result)) throw new Error("Invalid agent ticket");
+    return { ticket: result.trimEnd(), dispose, sign: (nonce: string) => run("ssh-keygen", ["-Y", "sign", "-f", key, "-n", "pi-remote-agent-v1"], `pi-remote-agent-v1\n${nonce}\n`, signal) };
+  } catch (error) { dispose(); throw error; }
 }

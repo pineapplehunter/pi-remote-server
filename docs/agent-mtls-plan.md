@@ -1,5 +1,7 @@
 # Pi Remote agent mTLS design
 
+**Archived:** This describes the old mTLS release. For current deployments use [SSH ticket setup](agent-ticket-operations.md).
+
 See the [operator runbook](agent-mtls-operations.md) for setup and certificate commands. Caddy is the only component that authenticates agent connections. Browser login stays with Authelia, and there is no bearer-token fallback.
 
 ## Routing and trust

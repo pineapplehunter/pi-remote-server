@@ -1,0 +1,15 @@
+{{define "hosts"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Trusted hosts · Pi Remote</title><link rel="stylesheet" href="/public/style.css"><link rel="icon" href="/favicon.svg"></head>
+<body class="host-page"><header class="connection-bar"><strong>Pi remote</strong><nav class="flex items-center gap-4" aria-label="Workspace"><a href="/">Sessions</a><span aria-current="page">Trusted hosts</span></nav></header>
+<main class="host-workspace"><h1>Trusted hosts</h1><p class="host-intro">Choose which computers can connect their Pi sessions to this gateway. Enroll each computer once; its subagents use the same enrollment.</p>
+<div class="mt-8 grid items-start gap-8 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"><section aria-labelledby="registered"><h2 id="registered">Registered hosts <span class="text-sm text-[var(--muted)] tabular-nums">{{len .}}</span></h2>
+{{if .}}<ul class="host-list m-0 list-none p-0">{{range .}}<li><div class="mb-2 flex flex-wrap justify-between gap-2"><strong>{{.Name}}</strong><span class="host-state{{if .Enabled}} enabled{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span></div>
+<p class="hint">Host ID<br><code>{{.ID}}</code></p>
+{{if .Enabled}}<details><summary>Disable access<span class="sr-only"> for {{.Name}}</span></summary>
+<form method="post" action="/admin/hosts" aria-label="Disable {{.Name}}"><input type="hidden" name="id" value="{{.ID}}"><p>This disconnects all sessions on this host and blocks new ones. To restore access, enroll the host again.</p><button type="submit" name="action" value="disable">Disable host</button></form></details>{{end}}</li>{{end}}</ul>
+{{else}}<p class="host-empty">No hosts registered. Add a public key to allow the first computer to connect.</p>{{end}}</section>
+<section class="host-enroll" aria-labelledby="add-host"><h2 id="add-host">Enroll a host</h2><form action="/admin/hosts" method="post" aria-labelledby="add-host">
+<label for="host-name">Host name</label><input id="host-name" name="name" required maxlength="128" aria-describedby="name-help"><p class="hint" id="name-help">Use a name you’ll recognize, such as “Build laptop”.</p>
+<label for="host-key">SSH public key</label><textarea id="host-key" name="key" required rows="3" spellcheck="false" autocorrect="off" autocapitalize="none" aria-describedby="key-help"></textarea><p class="hint" id="key-help">Paste the line starting with <code>ssh-ed25519</code> from the host’s <code>.pub</code> file. Never paste a private key.</p>
+<button type="submit" name="action" value="add">Enroll host</button></form></section></div>
+</main></body></html>{{end}}

@@ -1,5 +1,6 @@
 /.direnv
 /.cache
+/public/style.css
 /pi-remote-server
 result*
 /node_modules

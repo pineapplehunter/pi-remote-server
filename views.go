@@ -7,9 +7,9 @@ import (
 	"sort"
 )
 
-//go:embed public/app.js public/style.css public/favicon.svg templates/views.html
+//go:embed public/app.js public/style.css public/favicon.svg templates/*.html
 var assets embed.FS
-var views = template.Must(template.ParseFS(assets, "templates/views.html"))
+var views = template.Must(template.ParseFS(assets, "templates/*.html"))
 
 type RenderItem struct {
 	Order                                                  uint64

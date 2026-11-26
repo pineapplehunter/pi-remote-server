@@ -19,7 +19,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	gateway := newGateway(config)
+	store, err := openAuthStore(config.DBPath)
+	if err != nil {
+		return errors.New("Cannot open host authorization database.")
+	}
+	defer store.Close()
+	gateway := newGateway(config, store)
 	listener, err := net.Listen("tcp", net.JoinHostPort(config.Host, strconv.Itoa(config.Port)))
 	if err != nil {
 		return errors.New("Cannot start gateway. Check configuration and listening address.")
@@ -31,8 +36,8 @@ func run() error {
 	}
 	defer lock.Close()
 	defer agentListener.Close()
-	server := &http.Server{Handler: gateway, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 * 1024}
-	agentServer := &http.Server{Handler: http.HandlerFunc(gateway.agentHandler), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 * 1024}
+	server := &http.Server{Handler: gateway, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 * 1024}
+	agentServer := &http.Server{Handler: http.HandlerFunc(gateway.agentHandler), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 * 1024}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	serveErrors := make(chan error, 2)

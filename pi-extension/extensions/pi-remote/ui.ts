@@ -51,8 +51,8 @@ export function registerRemoteCommands(pi: ExtensionAPI, controls: RemoteControl
         ...(config ? [`Server: ${config.url}`] : ["Run /remote-login to configure."]),
         `Session: ${sessionId ?? "none"}`,
         `Config: ${configPath()}`,
-        ...(state === "issuer_failed" ? ["Check the host pi-remote-issuer D-Bus service."] : []),
-        ...(state === "auth_failed" ? ["Check the agent hostname and whether Caddy trusts this host's certificate chain."] : []),
+        ...(state === "issuer_failed" ? ["Check ssh-keygen, pi-remote-request-ticket, and the host ticket service."] : []),
+        ...(state === "auth_failed" ? ["Check the agent endpoint and whether this host is enabled on the gateway."] : []),
       ].join("\n"), "info");
     },
   });

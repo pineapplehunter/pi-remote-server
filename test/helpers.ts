@@ -1,4 +1,6 @@
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -54,7 +56,8 @@ export async function harness(publicOrigin?: string) {
   const dir = mkdtempSync(join(tmpdir(), "pi-go-test-"));
   const socket = join(dir, "agent.sock");
   const env: Record<string, string | undefined> = {
-    ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_AGENT_SOCKET: socket,
+    ...process.env, HOST: "127.0.0.1", PORT: new URL(base).port, PI_REMOTE_TICKET_SOCKET: socket,
+    PI_REMOTE_DB: join(dir, "hosts.sqlite"), PI_REMOTE_ADMIN_TOKEN: randomUUID(),
   };
   delete env.PUBLIC_ORIGIN;
   if (publicOrigin) env.PUBLIC_ORIGIN = publicOrigin;
@@ -70,10 +73,47 @@ export async function harness(publicOrigin?: string) {
   const clients: Client[] = [];
   const agentURL = `ws+unix://${socket}:/agent/ws`;
   const agentHTTP = (path: string) => fetch(`http://localhost${path}`, { unix: socket });
-  async function agent(host: string | null = "laptop") {
-    const client = new Client(agentURL, host === null ? {} : { [agentHostHeader]: host });
+  const hosts = new Map<string, { id: string; key: string }>();
+  function keypair() {
+    const file = join(dir, randomUUID());
+    execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "", "-f", file]);
+    return { file, pub: readFileSync(file + ".pub", "utf8").trim() };
+  }
+  function sign(file: string, namespace: string, ...lines: string[]) {
+    return execFileSync("ssh-keygen", ["-q", "-Y", "sign", "-n", namespace, "-f", file],
+      { input: [namespace, ...lines, ""].join("\n"), encoding: "utf8" });
+  }
+  async function post(path: string, body: object) {
+    const res = await fetch(`http://localhost/agent/${path}`, { unix: socket, method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`Agent ${path}: HTTP ${res.status}`);
+    return await res.json() as Record<string, string>;
+  }
+  async function agent(host = "laptop") {
+    let enrolled = hosts.get(host);
+    if (!enrolled) {
+      const key = keypair();
+      const admin = await fetch(`${base}/admin/hosts`, { method: "POST", redirect: "manual",
+        headers: { Origin: publicOrigin ?? base, Authorization: `Basic ${btoa(`admin:${env.PI_REMOTE_ADMIN_TOKEN}`)}` },
+        body: new URLSearchParams({ action: "add", name: host, key: key.pub }),
+      });
+      if (admin.status !== 303) throw new Error(`Host enrollment: HTTP ${admin.status}`);
+      const list = await fetch(`${base}/admin/hosts`, { headers: { Authorization: `Basic ${btoa(`admin:${env.PI_REMOTE_ADMIN_TOKEN}`)}` } });
+      const id = (await list.text()).match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g)?.find(id => ![...hosts.values()].some(h => h.id === id));
+      if (!id) throw new Error("Missing enrollment ID");
+      enrolled = { id, key: key.file };
+      hosts.set(host, enrolled);
+    }
+    const ephemeral = keypair(), params = {host_id: enrolled.id, agent_key: ephemeral.pub};
+    const challenge = (await post("challenge", params)).challenge!;
+    const signature = sign(enrolled.key, "pi-remote-host-v1", enrolled.id, ephemeral.pub, challenge);
+    const {ticket} = await post("ticket", {...params, challenge, signature});
+    const client = new Client(agentURL, {Authorization: `Bearer ${ticket}`});
     clients.push(client);
     await client.opened;
+    const proof = await client.take("auth.challenge");
+    client.send({type: "auth.proof", signature: sign(ephemeral.file, "pi-remote-agent-v1", proof.challenge)});
+    await client.take("auth.ok");
     return client;
   }
   async function browser() {
@@ -90,7 +130,7 @@ export async function harness(publicOrigin?: string) {
     client.socket.close();
     return snapshot.sessions;
   }
-  return { base, wsBase, agent, agentHTTP, browser, sessions, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); void child.exited.then(() => rmSync(dir, { recursive: true, force: true })); } };
+  return { base, wsBase, agent, agentHTTP, browser, sessions, hostID: (name: string) => hosts.get(name)?.id, stop() { for (const client of clients) client.socket.close(); child.kill("SIGTERM"); void child.exited.then(() => rmSync(dir, { recursive: true, force: true })); } };
 }
 export function register(agent: Client, fields: object = {}) {
   agent.send({ version: 1, type: "session.register", session_id: "s1", cwd: "/work", name: "Test session", pid: 123, ...fields });

@@ -7,10 +7,14 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "3000"
-      PI_REMOTE_AGENT_SOCKET: /run/pi-remote-agent/agent.sock
+      PI_REMOTE_TICKET_SOCKET: /run/pi-remote-agent/ticket.sock
+      PI_REMOTE_DB: /var/lib/pi-remote/hosts.sqlite
+      PI_REMOTE_ADMIN_TOKEN: ${PI_REMOTE_ADMIN_TOKEN:-}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:3000}
     volumes:
       - pi-remote-agent:/run/pi-remote-agent
+      - pi-remote-state:/var/lib/pi-remote
 
 volumes:
   pi-remote-agent:
+  pi-remote-state:

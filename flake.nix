@@ -8,7 +8,6 @@
     { flake-parts, ... }@inputs:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
-        "aarch64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
@@ -16,28 +15,7 @@
       perSystem =
         { pkgs, ... }:
         let
-          server = pkgs.buildGoModule {
-            pname = "pi-remote-server";
-            version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
-            src = pkgs.lib.fileset.toSource {
-              root = ./.;
-              fileset = pkgs.lib.fileset.unions [
-                (pkgs.lib.fileset.fileFilter (file: file.hasExt "go") ./.)
-                ./go.mod
-                ./go.sum
-                ./templates
-                ./public
-              ];
-            };
-            vendorHash = "sha256-0Qxw+MUYVgzgWB8vi3HBYtVXSq/btfh4ZfV/m1chNrA=";
-            subPackages = [ "." ];
-            env.CGO_ENABLED = "0";
-            ldflags = [
-              "-s"
-              "-w"
-            ];
-            meta.mainProgram = "pi-remote-server";
-          };
+          server = pkgs.callPackage ./go-server.nix { };
           extensionManifest = builtins.fromJSON (builtins.readFile ./pi-extension/package.json);
           extensionLock = builtins.fromJSON (builtins.readFile ./pi-extension/package-lock.json);
           ws = extensionLock.packages."node_modules/ws";
@@ -65,30 +43,18 @@
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
             default = docker;
-            docker = pkgs.dockerTools.streamLayeredImage {
-              name = "pi-remote-server";
-              tag = "latest";
-              contents = [ server ];
-              config = {
-                Cmd = [ "${server}/bin/pi-remote-server" ];
-                WorkingDir = "/";
-                Env = [
-                  "HOST=0.0.0.0"
-                  "PORT=3000"
-                ];
-                ExposedPorts = {
-                  "3000/tcp" = { };
-                };
-              };
-            };
+            docker = pkgs.callPackage ./docker.nix { inherit server; };
           };
 
           devShells.default = pkgs.mkShell {
             packages = [
               pkgs.go
+              pkgs.tailwindcss_4
               pkgs.bun
               pkgs.nodejs
               pkgs.openssl
+              pkgs.openssh
+              pkgs.sqlite
             ];
           };
 

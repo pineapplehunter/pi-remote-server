@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,8 +56,39 @@ func TestSocketBackpressure(t *testing.T) {
 	}
 }
 
+// The gateway tests exercise routing and socket admission independently of SSHSIG/SQLite.
+type testStore struct {
+	gatewayStore
+	disabled bool
+}
+
+func (s *testStore) Lookup(ticket string) (string, error) {
+	if ticket != "synthetic" {
+		return "", errors.New("no ticket")
+	}
+	return "key", nil
+}
+func testProof(challenge string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(challenge))) }
+func (s *testStore) Redeem(ticket, challenge, sig string) (string, error) {
+	b, err := base64.RawURLEncoding.DecodeString(challenge)
+	if s.disabled || err != nil || len(b) != 32 || sig != testProof(challenge) {
+		return "", errors.New("invalid")
+	}
+	return "test-host", nil
+}
+func (s *testStore) DisableHost(id string) error {
+	if id != "test-host" {
+		return errors.New("no host")
+	}
+	s.disabled = true
+	return nil
+}
+func (s *testStore) Hosts() ([]authHost, error) {
+	return []authHost{{ID: "test-host", Name: "unit test", Enabled: !s.disabled}}, nil
+}
+
 func TestConcurrentConnections(t *testing.T) {
-	gateway := newGateway(Config{})
+	gateway := newGateway(Config{AdminToken: "test-secret"}, &testStore{})
 	server := httptest.NewServer(gateway)
 	defer server.Close()
 	private := httptest.NewServer(http.HandlerFunc(gateway.agentHandler))
@@ -96,12 +131,17 @@ func TestConcurrentConnections(t *testing.T) {
 		wg.Add(1)
 		go func(pid int) {
 			defer wg.Done()
-			agent, _, err := websocket.DefaultDialer.Dial(agentURL, http.Header{agentHostHeader: []string{"laptop"}})
+			agent, _, err := websocket.DefaultDialer.Dial(agentURL, http.Header{"Authorization": []string{"Bearer synthetic"}})
 			if err != nil {
 				t.Error(err)
 				return
 			}
 			defer agent.Close()
+			var challenge, ok Message
+			if agent.ReadJSON(&challenge) != nil || challenge["type"] != "auth.challenge" || agent.WriteJSON(Message{"type": "auth.proof", "signature": testProof(stringValue(challenge, "challenge"))}) != nil || agent.ReadJSON(&ok) != nil || ok["type"] != "auth.ok" {
+				t.Error("failed socket proof")
+				return
+			}
 			if err := agent.WriteMessage(websocket.TextMessage, envelope(Message{"type": "session.register", "cwd": "/", "name": nil, "pid": pid + 1})); err != nil {
 				t.Error(err)
 				return
@@ -138,9 +178,16 @@ func TestConcurrentConnections(t *testing.T) {
 	if len(sessions) != count {
 		t.Fatal("registrations lost")
 	}
-	// Release writers and wait for disconnect cleanup through the browser stream.
-	close(release)
-	wg.Wait()
+	// Disabling the host removes all its sessions before any more frames can dispatch.
+	req := httptest.NewRequest("POST", server.URL+"/admin/hosts", strings.NewReader("action=disable&id=test-host"))
+	req.SetBasicAuth("admin", "test-secret")
+	req.Header.Set("Origin", server.URL)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	gateway.ServeHTTP(rr, req)
+	if rr.Code != 303 {
+		t.Fatalf("disable: %d", rr.Code)
+	}
 	for removed := 0; removed < count; {
 		var event Message
 		if err := browser.ReadJSON(&event); err != nil {
@@ -150,4 +197,6 @@ func TestConcurrentConnections(t *testing.T) {
 			removed++
 		}
 	}
+	close(release)
+	wg.Wait()
 }

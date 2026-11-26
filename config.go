@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,7 @@ type Config struct {
 	Host                      string
 	Port                      int
 	AgentSocket, PublicOrigin string
+	DBPath, AdminToken        string
 }
 
 func loadConfig(getenv func(string) (string, bool)) (Config, error) {
@@ -26,10 +28,15 @@ func loadConfig(getenv func(string) (string, bool)) (Config, error) {
 		}
 		c.Port = p
 	}
-	c.AgentSocket, _ = getenv("PI_REMOTE_AGENT_SOCKET")
+	c.AgentSocket, _ = getenv("PI_REMOTE_TICKET_SOCKET")
 	c.AgentSocket = trimSpace(c.AgentSocket)
+	c.DBPath, _ = getenv("PI_REMOTE_DB")
+	if !filepath.IsAbs(c.DBPath) {
+		return c, errors.New("PI_REMOTE_DB must be an absolute database path.")
+	}
+	c.AdminToken, _ = getenv("PI_REMOTE_ADMIN_TOKEN")
 	if c.Host == "" || c.Port < 1 || c.Port > 65535 || c.AgentSocket == "" {
-		return c, errors.New("Invalid configuration: set PI_REMOTE_AGENT_SOCKET and valid HOST/PORT.")
+		return c, errors.New("Invalid configuration: set PI_REMOTE_TICKET_SOCKET and valid HOST/PORT.")
 	}
 	if v, ok := getenv("PUBLIC_ORIGIN"); ok {
 		u, err := url.Parse(v)
@@ -53,5 +60,5 @@ func originAllowed(r *http.Request, publicOrigin string) bool {
 		}
 		publicOrigin = scheme + "://" + r.Host
 	}
-	return r.Header.Get("Origin") != "" && r.Header.Get("Origin") == publicOrigin
+	return len(r.Header.Values("Origin")) == 1 && r.Header.Get("Origin") == publicOrigin
 }

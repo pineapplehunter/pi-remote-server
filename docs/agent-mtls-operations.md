@@ -1,5 +1,7 @@
 # Set up Pi Remote certificates
 
+**Archived:** This describes the old mTLS release. For current deployments use [SSH ticket setup](agent-ticket-operations.md).
+
 Do this once for the server, then once for each computer that runs Pi. The YubiKey is only needed when you add or renew a computer. Pi gets its own temporary certificate automatically whenever it connects.
 
 | Where | What stays there |

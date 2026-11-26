@@ -29,6 +29,7 @@ jobs:
       - name: Test and type-check
         run: |
           nix develop --command bash -euo pipefail -c '
+            make css
             go test -race ./...
             go vet ./...
             bun install --frozen-lockfile
@@ -67,11 +68,13 @@ jobs:
         run: |
           scratch=$(mktemp -d)
           trap 'docker rm -f pi-remote-smoke >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
-          mkdir "$scratch/socket"
+          mkdir "$scratch/socket" "$scratch/state"
           docker run --detach --name pi-remote-smoke \
             --user "$(id -u):$(id -g)" \
             --publish 127.0.0.1::3000 \
-            --env PI_REMOTE_AGENT_SOCKET=/run/pi-remote-agent/agent.sock \
+            --env PI_REMOTE_TICKET_SOCKET=/run/pi-remote-agent/ticket.sock \
+            --env PI_REMOTE_DB=/var/lib/pi-remote/hosts.sqlite \
+            --mount "type=bind,src=$scratch/state,dst=/var/lib/pi-remote" \
             --mount "type=bind,src=$scratch/socket,dst=/run/pi-remote-agent" \
             pi-remote-server:latest
           url="http://$(docker port pi-remote-smoke 3000/tcp)"
@@ -84,11 +87,12 @@ jobs:
           curl --fail --silent --show-error "$url/favicon.svg" | grep -q '<svg'
           curl --fail --silent --show-error "$url/public/app.js" > /dev/null
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$url/agent/ws")" = 404
-          test "$(curl --silent --unix-socket "$scratch/socket/agent.sock" --output /dev/null --write-out '%{http_code}' http://localhost/agent/ws)" = 426
+          test "$(curl --silent --unix-socket "$scratch/socket/ticket.sock" --output /dev/null --write-out '%{http_code}' http://localhost/agent/ws)" = 401
           # Catch accidental runtime/dependency closure growth (uncompressed layers).
           size=$(docker image inspect pi-remote-server:latest --format '{{.Size}}')
           echo "Image size: $size bytes"
-          test "$size" -lt 20000000
+          # SSH/SQLite gateway with CGO: ~58.4 MB of uncompressed layers on amd64.
+          test "$size" -lt 70000000
 
       - name: Log in to GHCR
         env:

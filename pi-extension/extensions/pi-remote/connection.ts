@@ -1,8 +1,7 @@
 import WebSocket from "ws";
 import type { RemoteConfig } from "./config.ts";
 import { MAX_FRAME_BYTES, type OutgoingMessage } from "./protocol.ts";
-import { processKey, requestIdentity } from "./identity.ts";
-import type { KeyObject } from "node:crypto";
+import { requestIdentity } from "./identity.ts";
 
 export type ConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "issuer_failed" | "auth_failed";
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000] as const;
@@ -27,8 +26,7 @@ interface ConnectionOptions {
   /** Short delays are only useful to keep development tests fast. */
   reconnectDelays?: readonly number[];
   heartbeatMs?: number;
-  key?: KeyObject;
-  enroll?: typeof requestIdentity;
+  proofTimeoutMs?: number;
 }
 
 /** Networking owns no Pi context. All callbacks are isolated from socket failures. */
@@ -40,7 +38,7 @@ export class RemoteConnection {
   private stopped = false;
   private started = false;
   private readonly backoff: Backoff;
-  private readonly key: KeyObject;
+  private authenticated = false;
 
   constructor(
     private readonly config: RemoteConfig,
@@ -48,7 +46,6 @@ export class RemoteConnection {
     private readonly options: ConnectionOptions = {},
   ) {
     this.backoff = new Backoff(options.reconnectDelays);
-    this.key = options.key ?? processKey();
   }
 
   start(): void {
@@ -60,7 +57,7 @@ export class RemoteConnection {
   /** Best effort only: never waits for delivery or grows a disconnected queue. */
   send(message: OutgoingMessage): boolean {
     const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN || this.stopped) return false;
+    if (!this.authenticated || !socket || socket.readyState !== WebSocket.OPEN || this.stopped) return false;
     try {
       const payload = JSON.stringify(message);
       if (socket.bufferedAmount + Buffer.byteLength(payload) > MAX_BUFFERED_BYTES) {
@@ -115,7 +112,7 @@ export class RemoteConnection {
     this.enrollment = enrollment;
     let identity: Awaited<ReturnType<typeof requestIdentity>>;
     try {
-      identity = await (this.options.enroll ?? requestIdentity)(this.key, enrollment.signal);
+      identity = await requestIdentity(enrollment.signal);
     } catch {
       if (this.stopped) return;
       this.enrollment = undefined;
@@ -124,12 +121,10 @@ export class RemoteConnection {
       return;
     }
     if (this.stopped || this.enrollment !== enrollment) return;
-    this.enrollment = undefined;
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.config.url, {
-        key: identity.key,
-        cert: identity.cert,
+        headers: { Authorization: `Bearer ${identity.ticket}` },
         rejectUnauthorized: true,
         handshakeTimeout: 10000,
         followRedirects: false,
@@ -137,6 +132,7 @@ export class RemoteConnection {
         perMessageDeflate: false,
       });
     } catch {
+      enrollment.abort();
       this.state("disconnected");
       this.scheduleRetry();
       return;
@@ -146,8 +142,16 @@ export class RemoteConnection {
     let alive = true;
     const current = () => !this.stopped && this.socket === socket;
 
+    let phase: "challenge" | "signing" | "ack" = "challenge";
+    let proofTimer: NodeJS.Timeout | undefined;
+    const reject = () => { authenticationFailed = true; socket.terminate(); };
     socket.on("open", () => {
-      if (!current()) { socket.terminate(); return; }
+      proofTimer = setTimeout(reject, this.options.proofTimeoutMs ?? 10000);
+      proofTimer.unref();
+    });
+    const connected = () => {
+      clearTimeout(proofTimer);
+      this.authenticated = true;
       this.backoff.reset();
       this.state("connected");
       this.safely(() => this.callbacks.onOpen());
@@ -160,10 +164,26 @@ export class RemoteConnection {
         try { socket.ping(); } catch { socket.terminate(); }
       }, this.options.heartbeatMs ?? 30000);
       this.heartbeat.unref();
-    });
+    };
     socket.on("pong", () => { alive = true; });
-    socket.on("message", (data, isBinary) => {
-      if (!current()) return;
+    socket.on("message", async (data, isBinary) => {
+      if (!current() || authenticationFailed) return;
+      if (!this.authenticated) {
+        try {
+          if (isBinary || !Buffer.isBuffer(data) || data.length > 4096) return reject();
+          const msg = JSON.parse(data.toString());
+          if (phase === "challenge" && msg?.type === "auth.challenge" && typeof msg.challenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(msg.challenge)) {
+            phase = "signing";
+            const signature = await identity.sign(msg.challenge);
+            identity.dispose();
+            if (!current() || socket.readyState !== WebSocket.OPEN) return;
+            phase = "ack";
+            socket.send(JSON.stringify({ type: "auth.proof", signature }));
+          } else if (phase === "ack" && msg?.type === "auth.ok") connected();
+          else reject();
+        } catch { reject(); }
+        return;
+      }
       if (isBinary) this.safely(() => this.callbacks.onBinary());
       else this.safely(() => this.callbacks.onMessage(data.toString()));
     });
@@ -180,7 +200,12 @@ export class RemoteConnection {
       }
     });
     socket.on("close", () => {
+      clearTimeout(proofTimer);
+      enrollment.abort();
       if (!current()) return;
+      this.enrollment = undefined;
+      authenticationFailed ||= !this.authenticated && phase !== "challenge";
+      this.authenticated = false;
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;
       this.socket = undefined;
