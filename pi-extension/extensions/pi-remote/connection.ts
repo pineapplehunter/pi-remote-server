@@ -1,5 +1,4 @@
 import WebSocket from "ws";
-import type { RemoteConfig } from "./config.ts";
 import { MAX_FRAME_BYTES, type OutgoingMessage } from "./protocol.ts";
 import { requestIdentity } from "./identity.ts";
 
@@ -41,7 +40,6 @@ export class RemoteConnection {
   private authenticated = false;
 
   constructor(
-    private readonly config: RemoteConfig,
     private readonly callbacks: ConnectionCallbacks,
     private readonly options: ConnectionOptions = {},
   ) {
@@ -104,8 +102,11 @@ export class RemoteConnection {
     this.retryTimer.unref();
   }
 
+  endpoint?: string;
+
   private async connect(): Promise<void> {
     if (this.stopped) return;
+    this.endpoint = undefined;
     this.state("connecting");
     if (this.stopped) return;
     const enrollment = new AbortController();
@@ -123,7 +124,8 @@ export class RemoteConnection {
     if (this.stopped || this.enrollment !== enrollment) return;
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.config.url, {
+      this.endpoint = identity.url;
+      socket = new WebSocket(identity.url, {
         headers: { Authorization: `Bearer ${identity.ticket}` },
         rejectUnauthorized: true,
         handshakeTimeout: 10000,

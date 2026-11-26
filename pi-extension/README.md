@@ -74,17 +74,11 @@ Do not load the source copy and the Nix-store copy simultaneously: they have dif
 pi --no-extensions -e ./extensions/pi-remote/index.ts
 ```
 
-## Configure in Pi
+## Host-managed endpoint
 
-Have the administrator register the host’s SSH public key on the gateway and configure its returned host ID and HTTPS origin in the host ticket service, then run **`/remote-login`** and accept `wss://pi-agent.s.ihavenojob.work/agent/ws` or enter your agent endpoint. Only `wss://` and the `/agent/ws` path are accepted; don't include credentials, query parameters, or fragments. Configuration is saved atomically to **`~/.pi/agent/remote.json`**, mode 0600:
+Configure the enrollment name in the host ticket service. The HTTPS origin is optional, and the enrolled Ed25519 signing key must be available in the host’s SSH agent. On startup and reconnect, the extension calls `pi-remote-request-ticket --ws-url` to discover the corresponding WSS endpoint. No per-agent configuration is read or written. Upgrade the broker and both sandbox allowlists together; restart the broker and launch fresh Pi processes. On every connection attempt it creates a fresh Ed25519 key in a private temporary directory and supplies only the public key to the helper. It presents the returned single-use ticket and signs the socket challenge, then discards the key. Session data is blocked until `auth.ok`. `/remote-status` reports the URL, session, and connection state. The footer dot is green when authenticated, yellow while connecting, dim when offline, and red on a ticket or authentication error.
 
-```json
-{"version":2,"url":"wss://pi-agent.s.ihavenojob.work/agent/ws"}
-```
-
-Run setup again to replace an earlier configuration. The WebSocket URL must point to the same gateway pinned in the host service. The extension never passes that URL to the helper or follows redirects. On every connection attempt it creates a fresh Ed25519 key in a private temporary directory and supplies only the public key to the helper. It presents the returned single-use ticket and signs the socket challenge, then discards the key. Session data is blocked until `auth.ok`. `/remote-status` reports the URL, session, and connection state. The footer dot is green when authenticated, yellow while connecting, dim when offline, and red on a ticket or authentication error.
-
-The file is shared by normal/work Pi profiles. To disconnect, remove it and reload or restart each running Pi process. File deletion alone doesn't disconnect an existing socket. Pi's own `/name` also updates the session name while connected.
+To stop connecting, disable or remove the extension and restart Pi. Pi's own `/name` also updates the session name while connected.
 
 Treat the server as trusted: remote input becomes normal agent input and can cause Pi to run its tools with your permissions. The extension does not add approvals or automatically redact arbitrary secrets in conversations and tool arguments.
 
@@ -142,8 +136,7 @@ Tested against Pi **1.6.0**. Runtime imports are the current `@earendil-works/*`
 ## Files
 
 - `extensions/pi-remote/index.ts`: Pi lifecycle and remote input wiring.
-- `config.ts`: isolated configuration access/validation.
-- `ui.ts`: commands, endpoint setup, compact footer status.
+- `ui.ts`: status command, compact footer status.
 - `connection.ts`: socket lifecycle, bounded live buffering, reconnects, ping/pong heartbeat.
 - `protocol.ts`: strongly typed messages, limits, and parser.
 - `translation.ts`: text/stream/tool event translation.

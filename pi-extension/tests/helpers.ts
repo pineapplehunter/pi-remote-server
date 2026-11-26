@@ -27,6 +27,7 @@ export function tlsFixtures() {
   mkdirSync(file("bin"));
   writeFileSync(file("bin/pi-remote-request-ticket"), `#!${process.execPath}
 const fs = require('node:fs');
+if (process.argv[2] === '--ws-url') { console.log(fs.readFileSync(${JSON.stringify(file("endpoint"))}, 'utf8')); process.exit(0); }
 const pub = fs.readFileSync(0, 'utf8').trimEnd();
 if (!/^ssh-ed25519 [A-Za-z0-9+/]{68}$/.test(pub) || process.env.SSH_AUTH_SOCK) process.exit(1);
 const ticket = require('node:crypto').randomBytes(32).toString('base64url');
@@ -43,6 +44,8 @@ export function testHttps() {
   const {cert, key} = tlsFixtures();
   return createServer({ cert: readFileSync(cert), key: readFileSync(key) });
 }
+
+export function hostEndpoint(url: string) { writeFileSync(join(fixtureDirectory!, "endpoint"), url); }
 
 export function ticketPub(ticket: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(ticket)) throw Error("Invalid fixture ticket");
@@ -87,7 +90,9 @@ export async function localServer(prove = true): Promise<{ server: WebSocketServ
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing test server port");
-  return { server, url: `wss://127.0.0.1:${address.port}/agent/ws`, sockets };
+  const url = `wss://127.0.0.1:${address.port}/agent/ws`;
+  hostEndpoint(url);
+  return { server, url, sockets };
 }
 
 export async function closeServer(server: WebSocketServer): Promise<void> {

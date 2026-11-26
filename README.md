@@ -43,7 +43,7 @@ pi install "https://github.com/pineapplehunter/pi-remote-server@main"
 
 Restart Pi or `/reload`. The repository root's `pi.extensions` manifest points to `pi-extension/extensions/pi-remote/index.ts`; Pi installs the root runtime dependencies for Git sources. `main` is a moving branch; use a commit/tag instead for reproducibility, and `pi update` to refresh an installed Git source. The change must be pushed to GitHub before remote installs can fetch it.
 
-Tested with Pi **1.6.0**; requires Node >=22.19. Commands: `/remote-login`, `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Endpoint configuration lives at **`~/.pi/agent/remote.json`**, mode 0600. It contains no credentials. The host must provide the `pi-remote-request-ticket` D-Bus helper and `ssh-keygen`. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
+Tested with Pi **1.6.0**; requires Node >=22.19. Command: `/remote-status`. Use Pi's built-in `/name <name>` to rename sessions. Agents automatically discover the WebSocket URL from the host ticket broker on every connection attempt. The host must provide the `pi-remote-request-ticket` D-Bus helper and `ssh-keygen`. See [`pi-extension/README.md`](pi-extension/README.md) for configuration and API details. Do not load multiple copies of this extension.
 
 ### Nix / Home Manager
 

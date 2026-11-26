@@ -23,6 +23,7 @@ const (
 	authTTL        = 60 * time.Second
 )
 
+var errHostNameTaken = errors.New("enabled host name already in use")
 var errAuth = errors.New("invalid or expired credential")
 
 type authHost struct {
@@ -100,9 +101,17 @@ func (s *authStore) AddHost(name, key string) (string, error) {
 		return "", errors.New("invalid host name")
 	}
 	id := uuid()
-	_, err := s.db.Exec(`INSERT INTO hosts VALUES(?,?,?,1)`, id, name, key)
+	// One conditional write serializes competing enrollments, without a
+	// schema migration that could lock out admins with legacy duplicates.
+	r, err := s.db.Exec(`INSERT INTO hosts SELECT ?,?,?,1 WHERE NOT EXISTS
+		(SELECT 1 FROM hosts WHERE name=? AND enabled=1)`, id, name, key, name)
 	if err != nil {
 		return "", err
+	}
+	if n, err := r.RowsAffected(); err != nil {
+		return "", err
+	} else if n == 0 {
+		return "", errHostNameTaken
 	}
 	return id, nil
 }
@@ -138,6 +147,23 @@ func requireOne(r sql.Result, err error) error {
 func (s *authStore) DisableHost(id string) error {
 	return requireOne(s.db.Exec(`UPDATE hosts SET enabled=0 WHERE id=?`, id))
 }
+func (s *authStore) DeleteHost(id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := requireOne(tx.Exec("DELETE FROM hosts WHERE id=?", id)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM challenges WHERE host=?", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM tickets WHERE host=?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 func authNonce() string {
 	var b [32]byte
 	rand.Read(b[:])
@@ -151,6 +177,21 @@ func validAuthNonce(s string) bool {
 	return err == nil && len(b) == 32
 }
 func ticketDigest(ticket string) []byte { sum := sha256.Sum256([]byte(ticket)); return sum[:] }
+func (s *authStore) ResolveHost(name string) (id, fingerprint string, err error) {
+	var key string
+	// Refuse ambiguous pre-upgrade names instead of picking a key.
+	err = s.db.QueryRow(`SELECT id,pubkey FROM hosts WHERE name=? AND enabled=1
+		GROUP BY name HAVING count(*)=1`, name).Scan(&id, &key)
+	if err != nil {
+		return "", "", err
+	}
+	pub, err := parseAuthKey(key)
+	if err != nil {
+		return "", "", err
+	}
+	return id, ssh.FingerprintSHA256(pub), nil
+}
+
 func (s *authStore) Challenge(id, key string) (string, error) {
 	if _, err := parseAuthKey(key); err != nil {
 		return "", err
@@ -229,39 +270,40 @@ func (s *authStore) Ticket(id, key, nonce, signature string) (string, error) {
 	return ticket, nil
 }
 
-const selectTicket = `SELECT host,agent FROM tickets JOIN hosts ON hosts.id=tickets.host
+const selectTicket = `SELECT host,hosts.name,agent FROM tickets JOIN hosts ON hosts.id=tickets.host
 	WHERE digest=? AND expires>? AND enabled=1`
 
 func (s *authStore) Lookup(ticket string) (string, error) {
 	if !validAuthNonce(ticket) {
 		return "", errAuth
 	}
-	var id, key string
-	err := s.db.QueryRow(selectTicket, ticketDigest(ticket), s.now().UnixMilli()).Scan(&id, &key)
+	var id, name, key string
+	err := s.db.QueryRow(selectTicket, ticketDigest(ticket), s.now().UnixMilli()).Scan(&id, &name, &key)
 	return key, err
 }
-func (s *authStore) Redeem(ticket, nonce, signature string) (string, error) {
+func (s *authStore) Redeem(ticket, nonce, signature string) (authHost, error) {
 	if !validAuthNonce(ticket) || !validAuthNonce(nonce) {
-		return "", errAuth
+		return authHost{}, errAuth
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return "", err
+		return authHost{}, err
 	}
 	defer tx.Rollback()
-	var id, key string
+	host := authHost{Enabled: true}
+	var key string
 	digest := ticketDigest(ticket)
-	if err := tx.QueryRow(selectTicket, digest, s.now().UnixMilli()).Scan(&id, &key); err != nil {
-		return "", err
+	if err := tx.QueryRow(selectTicket, digest, s.now().UnixMilli()).Scan(&host.ID, &host.Name, &key); err != nil {
+		return authHost{}, err
 	}
 	if err := verifyAuthSig(key, signature, agentNamespace, agentNamespace+"\n"+nonce+"\n"); err != nil {
-		return "", err
+		return authHost{}, err
 	}
 	if err := requireOne(tx.Exec(`DELETE FROM tickets WHERE digest=? AND expires>?`, digest, s.now().UnixMilli())); err != nil {
-		return "", err
+		return authHost{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return "", err
+		return authHost{}, err
 	}
-	return id, nil
+	return host, nil
 }

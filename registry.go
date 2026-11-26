@@ -12,6 +12,7 @@ type Session struct {
 	RegistrationID string  `json:"registration_id"`
 	SessionID      string  `json:"session_id"`
 	HostID         string  `json:"host_id"`
+	HostName       string  `json:"host_name"`
 	Cwd            string  `json:"cwd"`
 	Name           *string `json:"name"`
 	PID            int64   `json:"pid"`
@@ -117,7 +118,7 @@ func (r *Registry) register(socket *Socket, m Message) {
 		name = &v
 	}
 	if session == nil {
-		session = &LiveSession{Session: Session{RegistrationID: uuid(), SessionID: stringValue(m, "session_id"), HostID: socket.hostID, Cwd: stringValue(m, "cwd"), Name: name, PID: int64(m["pid"].(float64)), ConnectedAt: now, LastSeen: now}, socket: socket}
+		session = &LiveSession{Session: Session{RegistrationID: uuid(), SessionID: stringValue(m, "session_id"), HostID: socket.hostID, HostName: socket.hostName, Cwd: stringValue(m, "cwd"), Name: name, PID: int64(m["pid"].(float64)), ConnectedAt: now, LastSeen: now}, socket: socket}
 		r.sessions[session.RegistrationID] = session
 		r.order = append(r.order, session.RegistrationID)
 		r.byConnection[socket] = session.RegistrationID

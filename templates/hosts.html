@@ -6,7 +6,9 @@
 {{if .}}<ul class="host-list m-0 list-none p-0">{{range .}}<li><div class="mb-2 flex flex-wrap justify-between gap-2"><strong>{{.Name}}</strong><span class="host-state{{if .Enabled}} enabled{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span></div>
 <p class="hint">Host ID<br><code>{{.ID}}</code></p>
 {{if .Enabled}}<details><summary>Disable access<span class="sr-only"> for {{.Name}}</span></summary>
-<form method="post" action="/admin/hosts" aria-label="Disable {{.Name}}"><input type="hidden" name="id" value="{{.ID}}"><p>This disconnects all sessions on this host and blocks new ones. To restore access, enroll the host again.</p><button type="submit" name="action" value="disable">Disable host</button></form></details>{{end}}</li>{{end}}</ul>
+<form method="post" action="/admin/hosts" aria-label="Disable {{.Name}}"><input type="hidden" name="id" value="{{.ID}}"><p>This disconnects all sessions on this host and blocks new ones. To restore access, enroll the host again.</p><button type="submit" name="action" value="disable">Disable host</button></form></details>{{end}}
+<details><summary>Delete host<span class="sr-only"> {{.Name}}</span></summary>
+<form method="post" action="/admin/hosts" aria-label="Delete {{.Name}}"><input type="hidden" name="id" value="{{.ID}}"><p>Permanently remove {{.Name}} and disconnect its sessions? It must be enrolled again to connect.</p><button type="submit" name="action" value="delete">Confirm deletion</button></form></details></li>{{end}}</ul>
 {{else}}<p class="host-empty">No hosts registered. Add a public key to allow the first computer to connect.</p>{{end}}</section>
 <section class="host-enroll" aria-labelledby="add-host"><h2 id="add-host">Enroll a host</h2><form action="/admin/hosts" method="post" aria-labelledby="add-host">
 <label for="host-name">Host name</label><input id="host-name" name="name" required maxlength="128" aria-describedby="name-help"><p class="hint" id="name-help">Use a name you’ll recognize, such as “Build laptop”.</p>

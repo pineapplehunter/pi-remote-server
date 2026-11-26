@@ -69,6 +69,41 @@ func TestAuthRoutes(t *testing.T) {
 	}
 }
 
+func TestDeleteTrustedHost(t *testing.T) {
+	s := testAuthStore(t, ":memory:")
+	g := newGateway(Config{}, s)
+	for _, disabled := range []bool{false, true} {
+		key := newStoreKey(t).pub
+		id, err := s.AddHost("laptop", key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Challenge(id, key); err != nil {
+			t.Fatal(err)
+		}
+		if disabled {
+			if err := s.DisableHost(id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req := httptest.NewRequest("POST", "http://localhost/admin/hosts", strings.NewReader("action=delete&id="+id))
+		req.Header.Set("Origin", "http://localhost")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, req)
+		if w.Code != http.StatusSeeOther {
+			t.Fatal(w.Code)
+		}
+		hosts, err := s.Hosts()
+		if err != nil || len(hosts) != 0 {
+			t.Fatal(hosts, err)
+		}
+		if _, err := s.Challenge(id, key); err == nil {
+			t.Fatal("deleted host admitted")
+		}
+	}
+}
+
 func TestPendingAgentDisable(t *testing.T) {
 	g := newGateway(Config{}, &testStore{})
 	g.pending = make(chan struct{}, 1)
@@ -89,7 +124,7 @@ func TestPendingAgentDisable(t *testing.T) {
 	if rr.Code != 429 {
 		t.Fatalf("pending proof did not occupy an admission slot: %d", rr.Code)
 	}
-	if err := g.disableHost("test-host"); err != nil {
+	if err := g.revokeHost("test-host", g.store.DisableHost); err != nil {
 		t.Fatal(err)
 	}
 	if err := conn.WriteJSON(Message{"type": "auth.proof", "signature": testProof(stringValue(m, "challenge"))}); err != nil {

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import remoteExtension from "../extensions/pi-remote/index.ts";
-import { saveConfig } from "../extensions/pi-remote/config.ts";
 import type { OutgoingMessage } from "../extensions/pi-remote/protocol.ts";
 import { closeServer, Inbox, localServer } from "./helpers.ts";
 
@@ -13,7 +12,7 @@ test("extension bridges live WS, follows lifecycle, rejects wrong sessions, and 
   const root = await mkdtemp(join(tmpdir(), "pi-remote-extension-"));
   const home = process.env.HOME;
   process.env.HOME = root;
-  const { server, url, sockets } = await localServer();
+  const { server, sockets } = await localServer();
   const messages = new Inbox<OutgoingMessage>();
   server.on("connection", (socket) => socket.on("message", (data) => messages.push(JSON.parse(data.toString()))));
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
@@ -34,7 +33,6 @@ test("extension bridges live WS, follows lifecycle, rejects wrong sessions, and 
   const emit = async (type: string, fields: Record<string, unknown> = {}) => handlers.get(type)?.({ type, ...fields }, ctx);
   const next = (type: OutgoingMessage["type"]) => messages.next((message) => message.type === type);
   try {
-    await saveConfig({ version: 2, url });
     remoteExtension(pi);
     assert.equal(server.clients.size, 0, "factory must not open a socket");
     await emit("session_start", { reason: "startup" });

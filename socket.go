@@ -9,13 +9,14 @@ import (
 
 // Exactly one writer per socket. Bounded queued bytes include the in-flight write.
 type Socket struct {
-	conn   *websocket.Conn
-	queue  chan []byte
-	done   chan struct{}
-	mu     sync.Mutex
-	queued int
-	closed bool
-	hostID string
+	conn     *websocket.Conn
+	queue    chan []byte
+	done     chan struct{}
+	mu       sync.Mutex
+	queued   int
+	closed   bool
+	hostID   string
+	hostName string
 }
 
 func newSocket(conn *websocket.Conn, hostID string) *Socket {

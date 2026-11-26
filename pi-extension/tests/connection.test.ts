@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { Backoff, RemoteConnection, type ConnectionState } from "../extensions/pi-remote/connection.ts";
-import { closeServer, Inbox, localServer, ticketPub, testHttps } from "./helpers.ts";
+import { closeServer, Inbox, localServer, ticketPub, testHttps, hostEndpoint } from "./helpers.ts";
 
 test("backoff follows 1/2/5/10/30 seconds and resets", () => {
   const backoff = new Backoff();
@@ -12,7 +12,7 @@ test("backoff follows 1/2/5/10/30 seconds and resets", () => {
 });
 
 test("ticket proof, reconnect, binary handling, and stop cleanup", async () => {
-  const { server, url, sockets } = await localServer();
+  const { server, sockets } = await localServer();
   const states = new Inbox<ConnectionState>();
   const input = new Inbox<string>();
   let opens = 0;
@@ -22,7 +22,7 @@ test("ticket proof, reconnect, binary handling, and stop cleanup", async () => {
     keys.push(ticketPub(request.headers.authorization!.slice(7)));
     assert.equal(request.url, "/agent/ws");
   });
-  const connection = new RemoteConnection({ version: 2, url }, {
+  const connection = new RemoteConnection({
     onOpen: () => { opens++; }, onMessage: (raw) => input.push(raw),
     onBinary: () => { binaries++; }, onState: (state) => states.push(state),
   }, { reconnectDelays: [20, 30], heartbeatMs: 100 });
@@ -44,10 +44,10 @@ test("ticket proof, reconnect, binary handling, and stop cleanup", async () => {
 
 test("unexpected first frame and missing proof acknowledgement never enable session traffic", async () => {
   for (const first of [{ type: "auth.ok" }, { type: "auth.challenge", challenge: "A".repeat(43) }]) {
-    const { server, url, sockets } = await localServer(false);
+    const { server, sockets } = await localServer(false);
     const states = new Inbox<ConnectionState>();
     let callbacks = 0;
-    const connection = new RemoteConnection({ version: 2, url }, {
+    const connection = new RemoteConnection({
       onOpen() { callbacks++; }, onMessage() { callbacks++; }, onBinary() { callbacks++; }, onState: state => states.push(state),
     }, { proofTimeoutMs: 250 });
     try {
@@ -74,7 +74,8 @@ test("HTTP authentication failure is detectable and retry timer is cancelled", a
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const states = new Inbox<ConnectionState>();
-  const connection = new RemoteConnection({ version: 2, url: `wss://127.0.0.1:${address.port}` }, {
+  hostEndpoint(`wss://127.0.0.1:${address.port}/agent/ws`);
+  const connection = new RemoteConnection({
     onOpen() {}, onMessage() {}, onBinary() {}, onState: (state) => states.push(state),
   }, { reconnectDelays: [50] });
   try {
@@ -84,8 +85,8 @@ test("HTTP authentication failure is detectable and retry timer is cancelled", a
 });
 
 test("callback failures cannot escape a network event", async () => {
-  const { server, url, sockets } = await localServer();
-  const connection = new RemoteConnection({ version: 2, url }, {
+  const { server, sockets } = await localServer();
+  const connection = new RemoteConnection({
     onOpen() { throw new Error("callback"); }, onMessage() { throw new Error("callback"); },
     onBinary() { throw new Error("callback"); }, onState() { throw new Error("callback"); },
   });

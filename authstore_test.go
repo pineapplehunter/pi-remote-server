@@ -49,6 +49,31 @@ func testAuthStore(t *testing.T, path string) *authStore {
 	t.Cleanup(func() { s.Close() })
 	return s
 }
+func TestNamedEnrollment(t *testing.T) {
+	s := testAuthStore(t, ":memory:")
+	key := newStoreKey(t)
+	id, err := s.AddHost("laptop", key.pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddHost("laptop", newStoreKey(t).pub); err != errHostNameTaken {
+		t.Fatal("duplicate name", err)
+	}
+	got, fp, err := s.ResolveHost("laptop")
+	if err != nil || got != id || fp != ssh.FingerprintSHA256(key.signer.PublicKey()) {
+		t.Fatal(got, fp, err)
+	}
+	if err := s.DisableHost(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ResolveHost("laptop"); err == nil {
+		t.Fatal("resolved disabled host")
+	}
+	if _, err := s.AddHost("laptop", newStoreKey(t).pub); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStoreProofs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.sqlite")
 	s := testAuthStore(t, path)
@@ -102,7 +127,7 @@ func TestStoreProofs(t *testing.T) {
 	start := make(chan struct{})
 	res := make(chan string, 2)
 	for _, db := range []*authStore{s, other} {
-		go func() { <-start; got, _ := db.Redeem(ticket, c, proof); res <- got }()
+		go func() { <-start; got, _ := db.Redeem(ticket, c, proof); res <- got.ID }()
 	}
 	close(start)
 	a, b := <-res, <-res

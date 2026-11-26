@@ -105,7 +105,9 @@ export async function harness(publicOrigin?: string) {
       hosts.set(host, enrolled);
     }
     const ephemeral = keypair(), params = {host_id: enrolled.id, agent_key: ephemeral.pub};
-    const challenge = (await post("challenge", params)).challenge!;
+    const reply = await post("challenge", {host_name: host, agent_key: ephemeral.pub});
+    if (reply.host_id !== enrolled.id || !reply.fingerprint?.startsWith("SHA256:")) throw new Error("Incorrect enrollment");
+    const challenge = reply.challenge!;
     const signature = sign(enrolled.key, "pi-remote-host-v1", enrolled.id, ephemeral.pub, challenge);
     const {ticket} = await post("ticket", {...params, challenge, signature});
     const client = new Client(agentURL, {Authorization: `Bearer ${ticket}`});

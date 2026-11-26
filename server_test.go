@@ -69,12 +69,12 @@ func (s *testStore) Lookup(ticket string) (string, error) {
 	return "key", nil
 }
 func testProof(challenge string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(challenge))) }
-func (s *testStore) Redeem(ticket, challenge, sig string) (string, error) {
+func (s *testStore) Redeem(ticket, challenge, sig string) (authHost, error) {
 	b, err := base64.RawURLEncoding.DecodeString(challenge)
 	if s.disabled || err != nil || len(b) != 32 || sig != testProof(challenge) {
-		return "", errors.New("invalid")
+		return authHost{}, errors.New("invalid")
 	}
-	return "test-host", nil
+	return authHost{ID: "test-host", Name: "unit test", Enabled: true}, nil
 }
 func (s *testStore) DisableHost(id string) error {
 	if id != "test-host" {

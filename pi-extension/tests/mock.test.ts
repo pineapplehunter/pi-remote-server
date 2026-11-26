@@ -8,13 +8,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import WebSocket from "ws";
-import { ticketPub, Inbox, tlsFixtures } from "./helpers.ts";
+import { hostEndpoint, ticketPub, Inbox, tlsFixtures } from "./helpers.ts";
 
 test("development mock authenticates, registers, and routes stdin JSON", { timeout: 10000 }, async () => {
   const reserve = createServer(); reserve.listen(0, "127.0.0.1"); await once(reserve, "listening");
   const address = reserve.address(); assert.ok(address && typeof address !== "string");
   await new Promise<void>((resolve) => reserve.close(() => resolve()));
   const { key, cert } = tlsFixtures();
+  hostEndpoint(`wss://127.0.0.1:${address.port}/agent/ws`);
   const identity = await requestIdentity(new AbortController().signal);
   const ticketFile = join(dirname(cert), "ticket");
   const pubFile = join(dirname(cert), "pub");
@@ -36,7 +37,7 @@ test("development mock authenticates, registers, and routes stdin JSON", { timeo
     const unauthorized = new WebSocket(`wss://127.0.0.1:${address.port}/agent/ws`); sockets.push(unauthorized);
     const rejected = new Promise<void>((resolve) => unauthorized.once("error", () => resolve()));
     await rejected;
-    const socket = new WebSocket(`wss://127.0.0.1:${address.port}/agent/ws`, { headers: { Authorization: `Bearer ${identity.ticket}` } }); sockets.push(socket);
+    const socket = new WebSocket(identity.url, { headers: { Authorization: `Bearer ${identity.ticket}` } }); sockets.push(socket);
     const [data1] = await once(socket, "message");
     const { challenge } = JSON.parse(data1.toString());
     socket.send(JSON.stringify({ type: "auth.proof", signature: await identity.sign(challenge) }));

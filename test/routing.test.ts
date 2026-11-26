@@ -34,6 +34,10 @@ describe("real Go HTTP / WebSocket gateway", () => {
       const detail = await (await fetch(`${h.base}/ui/sessions/${id}`)).text();
       expect(detail).toContain(`data-registration-id="${id}"`);
       expect(detail).not.toContain("<img");
+      for (const html of [list, detail]) {
+        expect(html).toContain("laptop · PID");
+        expect(html).not.toContain(h.hostID("laptop")!);
+      }
       expect(await (await fetch(`${h.base}/?session=${id}`)).text()).toContain('id="compose"');
       a.send(event("session.status", { status: "working" }));
       expect((await b.take("session.status")).status).toBe("working");
@@ -57,9 +61,10 @@ describe("real Go HTTP / WebSocket gateway", () => {
       const a1 = await h.agent(); const a2 = await h.agent(); const a3 = await h.agent("gpu01"); const b = await h.browser();
       register(a1); const r1 = (await b.take("session.added")).session.registration_id;
       register(a2, { pid: 456 }); const r2 = (await b.take("session.added")).session.registration_id;
-      register(a3, { host_id: "laptop" });
+      register(a3, { host_id: "laptop", host_name: "laptop" });
       const third = (await b.take("session.added")).session;
       expect(third.host_id).toBe(h.hostID("gpu01"));
+      expect(third.host_name).toBe("gpu01");
       const r3 = third.registration_id;
       expect(new Set([r1, r2, r3]).size).toBe(3);
       expect((await h.sessions()).filter(s => s.host_id === h.hostID("laptop"))).toHaveLength(2);

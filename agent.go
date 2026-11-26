@@ -18,10 +18,12 @@ type gatewayStore interface {
 	AddHost(name, key string) (string, error)
 	Hosts() ([]authHost, error)
 	DisableHost(id string) error
+	DeleteHost(id string) error
+	ResolveHost(name string) (id, fingerprint string, err error)
 	Challenge(hostID, agentKey string) (string, error)
 	Ticket(hostID, agentKey, challenge, signature string) (string, error)
 	Lookup(ticket string) (string, error)
-	Redeem(ticket, challenge, signature string) (string, error)
+	Redeem(ticket, challenge, signature string) (authHost, error)
 }
 
 const authBodyLimit = 8192
@@ -79,27 +81,38 @@ func (g *Gateway) agentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	body := http.MaxBytesReader(w, r.Body, authBodyLimit)
 	var req struct {
+		HostName  string `json:"host_name"`
 		HostID    string `json:"host_id"`
 		AgentKey  string `json:"agent_key"`
 		Challenge string `json:"challenge"`
 		Signature string `json:"signature"`
 	}
-	if !decodeAuthJSON(body, &req) || req.HostID == "" || req.AgentKey == "" {
+	if !decodeAuthJSON(body, &req) || req.AgentKey == "" {
 		http.Error(w, "Invalid request", 400)
 		return
 	}
 	var result string
 	var err error
+	response := Message{}
 	var key string
 	if path == "/agent/challenge" {
-		if req.Challenge != "" || req.Signature != "" {
+		if req.Challenge != "" || req.Signature != "" || (req.HostName == "") == (req.HostID == "") {
 			http.Error(w, "Invalid request", 400)
 			return
+		}
+		if req.HostName != "" {
+			var fingerprint string
+			req.HostID, fingerprint, err = g.store.ResolveHost(req.HostName)
+			if err != nil {
+				http.Error(w, "Authorization failed", 403)
+				return
+			}
+			response["host_id"], response["fingerprint"] = req.HostID, fingerprint
 		}
 		key = "challenge"
 		result, err = g.store.Challenge(req.HostID, req.AgentKey)
 	} else {
-		if req.Challenge == "" || req.Signature == "" {
+		if req.HostID == "" || req.HostName != "" || req.Challenge == "" || req.Signature == "" {
 			http.Error(w, "Missing proof", 400)
 			return
 		}
@@ -111,7 +124,8 @@ func (g *Gateway) agentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(Message{key: result})
+	response[key] = result
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (g *Gateway) authenticateAgent(w http.ResponseWriter, r *http.Request) *Socket {
@@ -161,11 +175,12 @@ func (g *Gateway) authenticateAgent(w http.ResponseWriter, r *http.Request) *Soc
 		return nil
 	}
 	host, err := g.store.Redeem(ticket, challenge, proof.Signature)
-	if err != nil || host == "" {
+	if err != nil || host.ID == "" {
 		conn.Close()
 		return nil
 	}
-	socket := newSocket(conn, host)
+	socket := newSocket(conn, host.ID)
+	socket.hostName = host.Name
 	reg.agents[socket] = true
 	socket.send(Message{"type": "auth.ok"})
 	logEvent("host.connected", nil)

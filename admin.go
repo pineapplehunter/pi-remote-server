@@ -45,12 +45,20 @@ func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if _, err := g.store.AddHost(name, strings.Join(fields[:2], " ")); err != nil {
-				http.Error(w, "Cannot add host", 400)
+				if err == errHostNameTaken {
+					http.Error(w, "An enabled host already uses that name", http.StatusConflict)
+				} else {
+					http.Error(w, "Cannot add host", 400)
+				}
 				return
 			}
-		case "disable":
-			if err := g.disableHost(r.PostForm.Get("id")); err != nil {
-				http.Error(w, "Cannot disable host", 400)
+		case "disable", "delete":
+			change := g.store.DisableHost
+			if r.PostForm.Get("action") == "delete" {
+				change = g.store.DeleteHost
+			}
+			if err := g.revokeHost(r.PostForm.Get("id"), change); err != nil {
+				http.Error(w, "Cannot update host", 400)
 				return
 			}
 		default:
@@ -63,17 +71,17 @@ func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 	}
 }
-func (g *Gateway) disableHost(id string) error {
+func (g *Gateway) revokeHost(id string, change func(string) error) error {
 	reg := g.registry
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
-	if err := g.store.DisableHost(id); err != nil {
+	if err := change(id); err != nil {
 		return err
 	}
 	for socket := range reg.agents {
 		if socket.hostID == id {
 			reg.disconnect(socket)
-			socket.close(1008, "Host disabled.")
+			socket.close(1008, "Host access revoked.")
 		}
 	}
 	return nil

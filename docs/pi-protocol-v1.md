@@ -5,9 +5,9 @@ This is the gateway/extension implementation contract. The Go gateway lives in t
 ## Transport and authentication
 
 - One outbound connection per running Pi extension runtime.
-- Default URL: `wss://pi-agent.s.ihavenojob.work/agent/ws` (editable).
+- The agent discovers its WSS URL through `PiRemoteTicket1.GetWebSocketURL`; the host broker derives it from the configured HTTPS origin.
 - The host helper obtains a single-use ticket bound to the process's ephemeral Ed25519 public key. WSS is required. Send the ticket in the Authorization header, never in a URL. Do not follow redirects.
-- Before registration, receive `auth.challenge`, reply with `auth.proof`, then wait for `auth.ok`. See [ticket authentication](agent-ticket-operations.md) for the signed bytes. The gateway derives `host_id` from enrollment, never from a client header.
+- Before registration, receive `auth.challenge`, reply with `auth.proof`, then wait for `auth.ok`. See [ticket authentication](agent-ticket-operations.md) for the signed bytes. The gateway derives `host_id` and the displayed `host_name` from the trusted host enrollment. Agent-supplied labels are not used to identify the host.
 - JSON text frames only. No subprotocol is required.
 - Agent accepts incoming frames up to 1 MiB (1,048,576 bytes).
 - Incoming `text` is limited to 100 KiB (102,400 bytes), measured as decoded UTF-8.

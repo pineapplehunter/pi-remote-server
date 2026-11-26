@@ -1,7 +1,7 @@
 {{define "sessions"}}<h1>Sessions</h1><p class="hint">Running Pi processes. Start new sessions on your host.</p>
 <nav aria-label="Pi sessions">{{range .}}<a class="session-link" href="/?session={{.RegistrationID}}" hx-get="/ui/sessions/{{.RegistrationID}}" hx-target="#detail" hx-swap="innerHTML" data-registration-id="{{.RegistrationID}}">
 <span class="dot {{if .Status}}{{.Status}}{{else}}unknown{{end}}" aria-hidden="true"></span><span><strong>{{.Title}}</strong>
-<small>{{.HostID}} · PID {{.PID}} · {{.StatusText}}</small><small>{{.Cwd}}</small></span></a>{{else}}<p class="empty">No Pi sessions connected. Enable the remote extension on a running Pi process.</p>{{end}}</nav>{{end}}
+<small>{{.HostName}} · PID {{.PID}} · {{.StatusText}}</small><small>{{.Cwd}}</small></span></a>{{else}}<p class="empty">No Pi sessions connected. Enable the remote extension on a running Pi process.</p>{{end}}</nav>{{end}}
 
 {{define "empty"}}<div class="welcome"><h2>Pi remote</h2><p>Select a running session to chat.</p><p class="hint">Recent output is buffered while Pi stays connected. Full history stays in Pi.</p></div>{{end}}
 
@@ -9,7 +9,7 @@
 
 {{define "selected"}}<section class="conversation" data-registration-id="{{.Session.RegistrationID}}" data-session-id="{{.Session.SessionID}}" data-sequence="{{.History.Sequence}}">
 <header class="chat-header"><button class="back" hx-get="/ui/empty" hx-target="#detail">‹ Sessions</button><div>
-<h2 id="session-name">{{.Session.Title}}</h2><p class="hint">{{.Session.HostID}} · PID {{.Session.PID}} · <span id="session-status">{{.Session.StatusText}}</span></p></div>
+<h2 id="session-name">{{.Session.Title}}</h2><p class="hint">{{.Session.HostName}} · PID {{.Session.PID}} · <span id="session-status">{{.Session.StatusText}}</span></p></div>
 <button id="toggle-tools" class="tool-toggle" type="button" aria-pressed="true" aria-controls="messages" title="Hide tool calls"><span class="toggle-indicator" aria-hidden="true"></span>Tool calls</button></header>
 <div class="feed"><p id="history-info" class="hint">{{if .History.Truncated}}Recent buffered output; older entries or long text have been trimmed.{{else}}Recent output captured while this Pi connection stays online. No earlier Pi history is loaded.{{end}}</p>
 <div id="messages" role="log" aria-label="Conversation and activity">{{range .Items}}{{if eq .Kind "message"}}{{template "message" .}}{{else if eq .Kind "notice"}}<article class="notice" data-order="{{.Order}}"><strong>Pi: {{.Code}}</strong><p>{{.Content}}</p></article>{{else}}<div class="activity {{.Status}}" data-order="{{.Order}}" data-call-id="{{.ToolCallID}}" data-summary="{{.Summary}}">{{.Summary}} — {{.Status}}</div>{{end}}{{end}}</div></div>

@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { configPath, loadConfig, type RemoteConfig } from "./config.ts";
 import { RemoteConnection, type ConnectionState } from "./connection.ts";
 import { RemoteInput } from "./input.ts";
 import { usageLimit } from "./usage-limit.ts";
@@ -16,14 +15,12 @@ interface ActiveSession {
   usageLimitAnnounced: boolean;
   state: ConnectionState;
   lifetime: AbortController;
-  config?: RemoteConfig;
   connection?: RemoteConnection;
   input?: RemoteInput;
 }
 
 export default function remoteExtension(pi: ExtensionAPI): void {
   let active: ActiveSession | undefined;
-  let configGeneration = 0;
 
   function send(message: OutgoingMessage): void { active?.connection?.send(message); }
 
@@ -34,7 +31,6 @@ export default function remoteExtension(pi: ExtensionAPI): void {
   }
 
   function registration(session: ActiveSession): void {
-    if (!session.config) return;
     send({ version: VERSION, type: "session.register", session_id: session.id,
       cwd: session.cwd, name: session.name, pid: process.pid });
     send({ version: VERSION, type: "session.status", session_id: session.id,
@@ -47,16 +43,8 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     // Footer/status command already exposes network state. No raw payload logging.
   }
 
-  function configure(config: RemoteConfig | undefined): void {
-    configGeneration++;
-    const session = active;
-    if (!session) return;
-    session.connection?.stop();
-    session.input?.clear();
-    session.connection = undefined;
-    session.config = config;
-    if (!config) { setState(session, "disabled"); return; }
-    const connection = new RemoteConnection(config, {
+  function connect(session: ActiveSession): void {
+    const connection = new RemoteConnection({
       onOpen: () => { if (active === session) registration(session); },
       onState: (state) => setState(session, state),
       onBinary: () => protocolError(session, { code: "invalid_message", message: "Expected a JSON text frame." }),
@@ -73,9 +61,8 @@ export default function remoteExtension(pi: ExtensionAPI): void {
   }
 
   registerRemoteCommands(pi, {
-    snapshot: () => ({ config: active?.config, state: active?.state ?? "disabled",
-      sessionId: active?.id, signal: active?.lifetime.signal }),
-    configure,
+    snapshot: () => ({ endpoint: active?.connection?.endpoint, state: active?.state ?? "disabled",
+      sessionId: active?.id }),
   });
 
   pi.on("session_start", (_event, ctx) => {
@@ -89,15 +76,7 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     };
     active = session;
     session.input = new RemoteInput(pi, () => !session.ctx.isIdle(), (error) => protocolError(session, error));
-    const generation = ++configGeneration;
-    // Never return/await this promise from the startup handler.
-    void loadConfig().then((config) => {
-      if (active === session && generation === configGeneration) configure(config);
-    }).catch(() => {
-      if (active === session && generation === configGeneration && ctx.hasUI) {
-        ctx.ui.notify(`Remote connection disabled: invalid or unreadable ${configPath()}. Use /remote-login.`, "warning");
-      }
-    });
+    connect(session);
   });
 
   pi.on("session_info_changed", (event) => {
@@ -127,12 +106,12 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     }
   });
   pi.on("message_update", (event) => {
-    if (!active?.config) return;
+    if (!active?.connection) return;
     const delta = textDelta(event);
     if (delta !== undefined) send({ version: VERSION, type: "message.delta", session_id: active.id, delta });
   });
   pi.on("message_end", (event) => {
-    if (!active?.config) return;
+    if (!active?.connection) return;
     if (event.message.role === "assistant") {
     }
     const message = completed(event, active.id);
@@ -144,17 +123,16 @@ export default function remoteExtension(pi: ExtensionAPI): void {
     }
   });
   pi.on("tool_execution_start", (event) => {
-    if (active?.config) send(toolStarted(event, active.id));
+    if (active?.connection) send(toolStarted(event, active.id));
   });
   pi.on("tool_execution_end", (event) => {
-    if (active?.config) send(toolCompleted(event, active.id));
+    if (active?.connection) send(toolCompleted(event, active.id));
   });
   pi.on("session_shutdown", (event) => {
     if (!active) return;
     send({ version: VERSION, type: "session.unregister", session_id: active.id, reason: event.reason });
     const session = active;
     active = undefined;
-    configGeneration++;
     session.lifetime.abort();
     session.input?.clear();
     session.connection?.stop();

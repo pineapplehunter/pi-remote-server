@@ -8,7 +8,6 @@ import { createAssistantMessageEventStream, type AssistantMessage, type Model } 
 import {
   createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
-import { saveConfig } from "../extensions/pi-remote/config.ts";
 import type { OutgoingMessage } from "../extensions/pi-remote/protocol.ts";
 import { closeServer, Inbox, localServer } from "./helpers.ts";
 
@@ -18,7 +17,7 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
   const root = await mkdtemp(join(tmpdir(), "pi-remote-sdk-"));
   const home = process.env.HOME;
   process.env.HOME = root;
-  const { server, url, sockets } = await localServer();
+  const { server, sockets } = await localServer();
   const messages = new Inbox<OutgoingMessage>();
   server.on("connection", (socket) => socket.on("message", (data) => messages.push(JSON.parse(data.toString()))));
   const next = (type: OutgoingMessage["type"]) => messages.next((message) => message.type === type);
@@ -32,7 +31,6 @@ test("real Pi loads extension and accepts idle/busy WS messages as normal user i
   let releaseFirst: () => void = () => {};
   const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
   try {
-    await saveConfig({ version: 2, url });
     await loader.reload();
     assert.deepEqual(loader.getExtensions().errors, []);
     assert.equal(loader.getExtensions().extensions.length, 1);
